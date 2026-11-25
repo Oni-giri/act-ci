@@ -151,7 +151,7 @@ def main() -> None:
         assert untar_proc.returncode == 0, f"tar sync failed: {err}"
         run_cmd(["docker", "exec", CONTAINER, "chown", "-R", "1000:1000", f"{sd}/{APP_ID}"])
 
-    # Query appStore.registry.query; if umbreld caches manifests in memory or refuses git-dirty pulls, inspect app-store.ts
+    # Query appStore.registry.query; if umbreld caches manifests in memory, inspect app-repository.ts and trigger re-read
     reg_out = ""
     for attempt in range(8):
         reg_out = run_cmd(
@@ -160,18 +160,43 @@ def main() -> None:
         if APP_ID in reg_out:
             break
         if attempt == 0:
-            inspect_ts = run_cmd(
+            parsed_stores = json.loads(reg_out)
+            for st_entry in parsed_stores:
+                print(
+                    "  Store in registry:",
+                    st_entry.get("meta"),
+                    "apps:",
+                    [a.get("id") for a in st_entry.get("apps", [])[:20]],
+                )
+            repo_ts = run_cmd(
                 [
                     "docker",
                     "exec",
                     CONTAINER,
                     "sh",
                     "-ec",
-                    "sed -n '1,160p' /opt/umbreld/source/modules/apps/app-store.ts /opt/umbreld/source/modules/apps/app-repository.ts 2>/dev/null || true",
+                    "cat /opt/umbreld/source/modules/apps/app-repository.ts 2>/dev/null || true",
                 ],
                 check=False,
             )
-            print("  app-store.ts / app-repository.ts:\n", inspect_ts.stdout[:3500])
+            print("  app-repository.ts:\n", repo_ts.stdout[:4000])
+            # Commit synced files inside the local store git repo so git pull/reset doesn't wipe or skip them,
+            # then restart umbreld.service so AppStore.start() re-reads disk!
+            for sd in store_dirs:
+                run_cmd(
+                    [
+                        "docker",
+                        "exec",
+                        CONTAINER,
+                        "sh",
+                        "-ec",
+                        f"cd {sd} && git config user.name test && git config user.email test@local && git add -A && git commit -m 'local sync' || true",
+                    ],
+                    check=False,
+                )
+            run_cmd(["docker", "exec", CONTAINER, "systemctl", "restart", "umbrel"], check=False)
+            run_cmd(["docker", "exec", CONTAINER, "systemctl", "restart", "umbreld"], check=False)
+            time.sleep(6.0)
         time.sleep(2.0)
     assert APP_ID in reg_out, f"{APP_ID} not found in appStore.registry.query! Sample: {reg_out[:800]}"
     print("==> Confirmed appStore.registry.query sees yakitori-act-ci@0.1.0")
