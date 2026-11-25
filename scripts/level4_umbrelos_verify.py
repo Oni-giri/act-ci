@@ -81,7 +81,7 @@ def main() -> None:
     store_pkg = Path("store") / APP_ID
     assert store_pkg.is_dir(), f"Missing package directory {store_pkg}"
 
-    # Locate ALL synced Umbrel store directories inside containerized umbrelOS (/data/umbrel-os/... and /home/umbrel/...)
+    # Locate ALL synced Umbrel store directories inside containerized umbrelOS (following symlinks via -L)
     store_dir_res = run_cmd(
         [
             "docker",
@@ -89,11 +89,16 @@ def main() -> None:
             CONTAINER,
             "sh",
             "-ec",
-            "find /data /var /home -maxdepth 6 -type d -name 'getumbrel-umbrel-apps-github-*' 2>/dev/null",
+            "find -L /data -maxdepth 6 -type d -name 'getumbrel-umbrel-apps-github-*' 2>/dev/null || true",
         ]
     )
-    store_dirs = [d.strip() for d in store_dir_res.stdout.splitlines() if d.strip()]
-    assert store_dirs, "Could not locate app-stores directory inside umbrelos-test"
+    store_dirs = sorted({d.strip() for d in store_dir_res.stdout.splitlines() if d.strip()})
+    if not store_dirs:
+        diag = run_cmd(
+            ["docker", "exec", CONTAINER, "sh", "-ec", "ls -la /data /data/umbrel-os /home/umbrel/umbrel/app-stores 2>&1 || true"],
+            check=False,
+        )
+        raise AssertionError(f"Could not locate app-stores directory inside umbrelos-test:\n{diag.stdout}")
     store_dir = store_dirs[0]
     for sd in store_dirs:
         print(f"==> Syncing {APP_ID} into umbrelOS store path: {sd}")
@@ -114,9 +119,8 @@ def main() -> None:
         assert untar_proc.returncode == 0, f"tar sync failed: {err}"
         run_cmd(["docker", "exec", CONTAINER, "chown", "-R", "1000:1000", f"{sd}/{APP_ID}"])
 
-    # Confirm Umbrel registry sees yakitori-act-ci; note that getumbrel/umbrel-apps uses bare ids
-    # while community stores prefix ids with `<store-id>-` (yakitori-act-ci). Check how umbreld
-    # indexes synced packages and also test adding a local community store if needed!
+    # Add Oni-giri/yakitoris-app-store community app store OR sync yakitori-act-ci directly into the store directory!
+    # First inspect umbreld appStore router procedures so we use the exact supported call if needed.
     reg_out = ""
     for attempt in range(8):
         reg_out = run_cmd(
@@ -124,25 +128,23 @@ def main() -> None:
         ).stdout
         if APP_ID in reg_out:
             break
-        if attempt == 1:
-            print("  Inspecting umbreld appStore procedures and store layout...")
-            info = run_cmd(
+        if attempt == 0:
+            # Also try registering community app store or restarting umbrel service to re-read app-stores/
+            procs = run_cmd(
                 [
                     "docker",
                     "exec",
                     CONTAINER,
                     "sh",
                     "-ec",
-                    "ls -la /data/umbrel-os/var/lib/umbrel/app-stores/ /home/umbrel/umbrel/app-stores/ 2>/dev/null || true; "
-                    "grep -rn 'appStore' /opt/umbreld/ 2>/dev/null | head -n 30 || true",
+                    "grep -rnE 'appStore|repositories' /opt/umbreld/source/modules/apps/ 2>/dev/null | head -n 40 || "
+                    "grep -rnE 'registry|repositories' /opt/umbreld/ 2>/dev/null | head -n 40 || true",
                 ],
                 check=False,
             )
-            print(info.stdout)
-            # Restart umbreld service inside systemd container so it re-indexes app-stores from disk
+            print("  umbreld appStore internals:\n", procs.stdout[:2000])
             run_cmd(["docker", "exec", CONTAINER, "systemctl", "restart", "umbrel"], check=False)
-            run_cmd(["docker", "exec", CONTAINER, "systemctl", "restart", "umbreld"], check=False)
-            time.sleep(4.0)
+            time.sleep(5.0)
         time.sleep(2.0)
     assert APP_ID in reg_out, f"{APP_ID} not found in appStore.registry.query! Sample: {reg_out[:600]}"
     print("==> Confirmed appStore.registry.query sees yakitori-act-ci@0.1.0")
