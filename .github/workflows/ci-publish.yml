@@ -12,6 +12,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      only_level4:
+        description: "Run only Level 4 Umbrel verification"
+        required: false
+        default: "false"
+        type: string
 
 permissions:
   contents: read
@@ -20,6 +26,7 @@ permissions:
 jobs:
   level1-tests:
     name: "Level 1: Automated Unit & Security Matrix Tests"
+    if: inputs.only_level4 != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +42,7 @@ jobs:
 
   level2-and-level3-tests:
     name: "Level 2 & 3: Real DinD Runner + Compose Stack Smoke Tests"
+    if: inputs.only_level4 != 'true'
     runs-on: ubuntu-latest
     needs: level1-tests
     steps:
@@ -124,7 +132,7 @@ jobs:
   level4-umbrel-package-checks:
     name: "Level 4: Umbrel Package Static & Containerized umbrelOS Verification"
     runs-on: ubuntu-latest
-    if: always() && needs.level1-tests.result == 'success' && needs.level2-and-level3-tests.result == 'success' && (needs.publish-multiarch.result == 'success' || needs.publish-multiarch.result == 'skipped')
+    if: always() && (inputs.only_level4 == 'true' || (needs.level1-tests.result == 'success' && needs.level2-and-level3-tests.result == 'success' && (needs.publish-multiarch.result == 'success' || needs.publish-multiarch.result == 'skipped')))
     needs: [level1-tests, level2-and-level3-tests, publish-multiarch]
     steps:
       - name: Check out Act-CI verification scripts
