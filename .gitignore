@@ -20,3 +20,4 @@ master.key
 .DS_Store
 .dsh-write-probe
 docs/agents/
+.scratch-store/

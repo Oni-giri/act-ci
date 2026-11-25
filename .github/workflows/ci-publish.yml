@@ -49,7 +49,7 @@ jobs:
           docker run -d --privileged --name actci-test-dind \
             -e DOCKER_TLS_CERTDIR="" \
             -p 127.0.0.1:23750:2375 \
-            docker:27.2.0-dind@sha256:f9f72ad901a78f27be922b2d320bbc263174f12919c1b37e6a01f828fa904565 \
+            docker:27.2.0-dind@sha256:d1d6d5265119696d8fa9b883f813953c560c5d87ea128a57681239b576f62997 \
             dockerd --host=tcp://0.0.0.0:2375 --storage-driver=overlay2
           for i in $(seq 1 30); do
             if docker -H tcp://127.0.0.1:23750 info >/dev/null 2>&1; then
@@ -113,3 +113,61 @@ jobs:
         run: |
           echo "Published digest: ${{ steps.build.outputs.digest }}"
           docker buildx imagetools inspect "ghcr.io/oni-giri/act-ci:0.1.0@${{ steps.build.outputs.digest }}"
+          docker buildx imagetools inspect "docker:27.2.0-dind@sha256:d1d6d5265119696d8fa9b883f813953c560c5d87ea128a57681239b576f62997"
+
+  level4-umbrel-package-checks:
+    name: "Level 4: Umbrel Package Static & Containerized umbrelOS Probe"
+    runs-on: ubuntu-latest
+    needs: [publish-multiarch]
+    steps:
+      - name: Check out Umbrel store package branch
+        uses: actions/checkout@v4
+        with:
+          repository: Oni-giri/yakitoris-app-store
+          ref: feat/yakitori-act-ci
+          path: store
+      - name: Check out getumbrel/umbrel-apps linter
+        uses: actions/checkout@v4
+        with:
+          repository: getumbrel/umbrel-apps
+          path: umbrel-lint
+      - name: Run official Umbrel linter, git diff --check, and docker compose config
+        run: |
+          set -eux
+          git -C store diff origin/master...HEAD --check
+          # Confirm only yakitori-act-ci/ was touched on the store branch
+          changed="$(git -C store diff --name-only origin/master...HEAD | cut -d/ -f1 | sort -u)"
+          test "$changed" = "yakitori-act-ci"
+
+          cp -a store/yakitori-act-ci umbrel-lint/yakitori-act-ci
+          (cd umbrel-lint && npm install --no-audit --no-fund && npm run lint:apps -- yakitori-act-ci --check-images)
+
+          # Render docker compose config with dummy Umbrel variables (filtering Umbrel's virtual app_proxy block)
+          python3 -c '
+          import pathlib, yaml
+          raw = pathlib.Path("store/yakitori-act-ci/docker-compose.yml").read_text()
+          doc = yaml.safe_load(raw)
+          assert "app_proxy" in doc["services"]
+          # Validate standard Docker Compose services (docker + web) with docker compose config
+          doc["services"].pop("app_proxy")
+          pathlib.Path("/tmp/umbrel-compose-check.yml").write_text(yaml.safe_dump(doc))
+          '
+          APP_DATA_DIR=/tmp/dummy-app-data \
+          APP_YAKITORI_ACT_CI_MASTER_KEY=dummy_master_key_0123456789abcdef0123456789abcdef \
+          APP_YAKITORI_ACT_CI_CSRF_SECRET=SI_SECRET_SECRET_U5W01FSH \
+          docker compose -f /tmp/umbrel-compose-check.yml config
+      - name: Probe containerized umbrelOS image in GitHub Actions VM
+        run: |
+          set -ux
+          # Discover latest published ghcr.io/getumbrel/umbrelos tag or probe 1.4.0 / latest
+          docker pull ghcr.io/getumbrel/umbrelos:latest || true
+          docker run -d --name umbrelos-test --privileged \
+            --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v umbrelos-data:/data \
+            ghcr.io/getumbrel/umbrelos:latest /sbin/init || true
+          sleep 15
+          docker ps -a --filter name=umbrelos-test
+          docker exec umbrelos-test umbreld --version 2>&1 || true
+          docker logs umbrelos-test 2>&1 | tail -n 40 || true
+          docker rm -f -v umbrelos-test || true
