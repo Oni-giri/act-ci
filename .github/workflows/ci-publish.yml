@@ -7,6 +7,7 @@ on:
       - "**"
     paths-ignore:
       - ".github/workflows/**"
+      - "scripts/level4_umbrelos_verify.py"
       - "*.md"
     tags:
       - "v*"
@@ -126,6 +127,10 @@ jobs:
     if: always() && needs.level1-tests.result == 'success' && needs.level2-and-level3-tests.result == 'success' && (needs.publish-multiarch.result == 'success' || needs.publish-multiarch.result == 'skipped')
     needs: [level1-tests, level2-and-level3-tests, publish-multiarch]
     steps:
+      - name: Check out Act-CI verification scripts
+        uses: actions/checkout@v4
+        with:
+          path: act-ci-repo
       - name: Check out Umbrel store package branch
         uses: actions/checkout@v4
         with:
@@ -168,8 +173,7 @@ jobs:
           docker buildx imagetools inspect "docker:27.2.0-dind@sha256:d1d6d5265119696d8fa9b883f813953c560c5d87ea128a57681239b576f62997"
       - name: Run containerized umbrelOS 2.0.2 fresh-install & update lifecycle checks
         run: |
-          set -ux
-          # Test containerized umbrelOS 2.0.2 (per umbrel-test-app skill)
+          set -eux
           docker pull ghcr.io/getumbrel/umbrelos:2.0.2
           docker run -d --name umbrelos-test \
             --privileged \
@@ -178,68 +182,12 @@ jobs:
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             -v umbrelos-test:/data \
             ghcr.io/getumbrel/umbrelos:2.0.2 /sbin/init
-          READY=0
+          trap 'docker rm -f -v umbrelos-test || true' EXIT
           for i in $(seq 1 60); do
             if docker exec umbrelos-test umbreld client appStore.registry.query >/dev/null 2>&1; then
               echo "umbreld tRPC ready at iteration ${i}"
-              READY=1
               break
             fi
             sleep 2
           done
-          docker ps -a --filter name=umbrelos-test
-          if [ "$READY" = "1" ]; then
-            echo "=== Creating initial Umbrel user if onboarding is pending ==="
-            docker exec umbrelos-test umbreld client user.create.mutate --name "UmbrelAdmin" --password "umbreltestpassword123" 2>&1 || true
-
-            echo "=== Locating Umbrel app-store directory ==="
-            docker exec umbrelos-test sh -c 'find /data /var /home -maxdepth 5 -name "umbrel-app-store.yml" -o -name "*umbrel-apps*" 2>/dev/null' || true
-            STORE_DIR=$(docker exec umbrelos-test sh -c 'ls -d /data/umbrel-os/var/lib/umbrel/app-stores/* /var/lib/umbrel/app-stores/* /data/app-stores/* /home/umbrel/umbrel/app-stores/* 2>/dev/null | head -n 1')
-            echo "Detected STORE_DIR=$STORE_DIR"
-            if [ -n "$STORE_DIR" ]; then
-              docker cp store/yakitori-act-ci "umbrelos-test:${STORE_DIR}/yakitori-act-ci"
-              docker exec umbrelos-test rm -f \
-                "${STORE_DIR}/yakitori-act-ci/data/app/.gitkeep" \
-                "${STORE_DIR}/yakitori-act-ci/data/docker/.gitkeep" \
-                "${STORE_DIR}/yakitori-act-ci/data/dind-run/.gitkeep" || true
-
-              echo "=== Installing yakitori-act-ci through umbreld ==="
-              docker exec umbrelos-test umbreld client apps.install.mutate --appId yakitori-act-ci 2>&1 || true
-              for j in $(seq 1 45); do
-                STATE=$(docker exec umbrelos-test umbreld client apps.state.query --appId yakitori-act-ci 2>&1 || true)
-                echo "apps.state.query ($j): $STATE"
-                if echo "$STATE" | grep -qi "ready"; then
-                  break
-                fi
-                sleep 2
-              done
-              echo "=== Settled apps.logs.query ==="
-              docker exec umbrelos-test umbreld client apps.logs.query --appId yakitori-act-ci 2>&1 || true
-
-              echo "=== Checklist 1 & 2: App opens on Umbrel port 8755 and UI requires Umbrel login ==="
-              curl -i -sS http://127.0.0.1:8755/ | head -n 25 || true
-              curl -i -sS http://127.0.0.1:8755/tokens | head -n 25 || true
-
-              echo "=== Checklist 3: API & MCP return 401 without bearer token on port 8755 ==="
-              curl -i -sS http://127.0.0.1:8755/api/v1/repos | head -n 20 || true
-              curl -i -sS -X POST http://127.0.0.1:8755/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"ping"}' | head -n 20 || true
-
-              echo "=== Inspecting nested Docker sidecar inside containerized umbrelOS ==="
-              docker exec umbrelos-test docker ps -a 2>&1 || true
-
-              echo "=== Checklist 5: Restarting app via apps.restart.mutate ==="
-              docker exec umbrelos-test umbreld client apps.restart.mutate --appId yakitori-act-ci 2>&1 || true
-              sleep 5
-              docker exec umbrelos-test umbreld client apps.state.query --appId yakitori-act-ci 2>&1 || true
-
-              echo "=== Update path: bumping manifest version to 0.1.1 and running apps.update.mutate ==="
-              docker exec umbrelos-test sed -i 's/version: "0.1.0"/version: "0.1.1"/' "${STORE_DIR}/yakitori-act-ci/umbrel-app.yml"
-              docker exec umbrelos-test umbreld client apps.update.mutate --appId yakitori-act-ci 2>&1 || true
-              sleep 8
-              docker exec umbrelos-test umbreld client apps.state.query --appId yakitori-act-ci 2>&1 || true
-              curl -i -sS http://127.0.0.1:8755/api/v1/repos | head -n 20 || true
-            fi
-          else
-            docker logs umbrelos-test 2>&1 | tail -n 80 || true
-          fi
-          docker rm -f -v umbrelos-test || true
+          python3 act-ci-repo/scripts/level4_umbrelos_verify.py
