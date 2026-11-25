@@ -2,13 +2,6 @@ name: CI and Publish Multi-Arch Image
 
 on:
   push:
-    branches:
-      - main
-      - "**"
-    paths-ignore:
-      - ".github/workflows/**"
-      - "scripts/level4_umbrelos_verify.py"
-      - "*.md"
     tags:
       - "v*"
   workflow_dispatch:
