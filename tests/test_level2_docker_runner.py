@@ -151,6 +151,7 @@ async def test_level2_passing_failing_overlay_replacement_and_callback(
                 "  verify:\n"
                 "    runs-on: ubuntu-latest\n"
                 "    steps:\n"
+                "      - uses: actions/checkout@v4\n"
                 "      - name: Print greeting\n"
                 "        run: cat greeting.txt\n"
             ),
@@ -236,6 +237,7 @@ async def test_level2_passing_failing_overlay_replacement_and_callback(
                     "  check-overlay:\n"
                     "    runs-on: ubuntu-latest\n"
                     "    steps:\n"
+                    "      - uses: actions/checkout@v4\n"
                     "      - name: Verify overlay and secret masking\n"
                     "        env:\n"
                     "          S: ${{ secrets.SUPER_SECRET }}\n"

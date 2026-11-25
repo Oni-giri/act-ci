@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -608,11 +609,28 @@ class RunnerWorker:
             deadline,
             run_id,
         )
+        commit_sha = sha_out.strip()
+        # Attach a local branch so nektos/act can always resolve GITHUB_REF (even when
+        # requested_ref was a raw commit SHA rather than a branch/tag name).
+        branch_name = (
+            requested_ref
+            if re.match(r"^[A-Za-z0-9._-]+$", requested_ref)
+            and requested_ref != commit_sha
+            else "act-ci"
+        )
+        await self._exec_git(
+            [git, "checkout", "-B", branch_name, commit_sha],
+            workspace_dir,
+            git_env,
+            masker,
+            deadline,
+            run_id,
+        )
         # Wipe credentials from run_tmp_dir immediately after git clone completes!
         for p in run_tmp_dir.iterdir():
             if p.is_file():
                 p.unlink(missing_ok=True)
-        return sha_out.strip()
+        return commit_sha
 
     async def _exec_git_allow_fail(
         self,
