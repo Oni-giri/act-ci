@@ -18,6 +18,8 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
 BASE_URL = os.environ.get("ACT_CI_SMOKE_URL", "http://127.0.0.1:8755")
@@ -69,10 +71,22 @@ def main() -> None:
         _wait_ready()
         print("==> Stack is healthy at", BASE_URL)
 
-        # Wait until DinD daemon inside sidecar is accepting connections
+        # Wait until DinD daemon is reachable from the web container via DOCKER_HOST
         for _ in range(30):
             r = subprocess.run(
-                ["docker", "compose", "-p", COMPOSE_PROJECT, "exec", "-T", "docker", "docker", "info"],
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    COMPOSE_PROJECT,
+                    "exec",
+                    "-T",
+                    "web",
+                    "docker",
+                    "-H",
+                    "tcp://docker:2375",
+                    "info",
+                ],
                 capture_output=True,
             )
             if r.returncode == 0:
@@ -226,7 +240,21 @@ def main() -> None:
 
         # 6. Verify DinD sidecar has zero leftover job containers
         ps_sidecar = subprocess.run(
-            ["docker", "compose", "-p", COMPOSE_PROJECT, "exec", "-T", "docker", "docker", "ps", "-a", "-q"],
+            [
+                "docker",
+                "compose",
+                "-p",
+                COMPOSE_PROJECT,
+                "exec",
+                "-T",
+                "web",
+                "docker",
+                "-H",
+                "tcp://docker:2375",
+                "ps",
+                "-a",
+                "-q",
+            ],
             check=True,
             capture_output=True,
             text=True,
