@@ -151,37 +151,41 @@ def main() -> None:
         assert untar_proc.returncode == 0, f"tar sync failed: {err}"
         run_cmd(["docker", "exec", CONTAINER, "chown", "-R", "1000:1000", f"{sd}/{APP_ID}"])
 
-    # Query appStore.registry.query; if umbreld caches manifests in memory, inspect app-repository.ts and trigger re-read
-    reg_out = ""
+    # Query appStore.registry.query INSIDE the container via sh -> file -> grep so docker exec pipe never truncates 64KB!
+    def check_registry_has_app() -> bool:
+        res = run_cmd(
+            [
+                "docker",
+                "exec",
+                CONTAINER,
+                "sh",
+                "-ec",
+                f"umbreld client appStore.registry.query > /tmp/reg.json && grep -q '\"{APP_ID}\"' /tmp/reg.json",
+            ],
+            check=False,
+        )
+        return res.returncode == 0
+
+    found_in_reg = False
     for attempt in range(8):
-        reg_out = run_cmd(
-            ["docker", "exec", CONTAINER, "umbreld", "client", "appStore.registry.query"]
-        ).stdout
-        if APP_ID in reg_out:
+        if check_registry_has_app():
+            found_in_reg = True
             break
         if attempt == 0:
-            parsed_stores = json.loads(reg_out)
-            for st_entry in parsed_stores:
-                print(
-                    "  Store in registry:",
-                    st_entry.get("meta"),
-                    "apps:",
-                    [a.get("id") for a in st_entry.get("apps", [])[:20]],
-                )
-            repo_ts = run_cmd(
+            # Show yakitori store entry from /tmp/reg.json if any
+            yak_info = run_cmd(
                 [
                     "docker",
                     "exec",
                     CONTAINER,
                     "sh",
                     "-ec",
-                    "cat /opt/umbreld/source/modules/apps/app-repository.ts 2>/dev/null || true",
+                    "grep -o '\"id\": *\"yakitori-[^\"]*\"' /tmp/reg.json || true",
                 ],
                 check=False,
             )
-            print("  app-repository.ts:\n", repo_ts.stdout[:4000])
-            # Commit synced files inside the local store git repo so git pull/reset doesn't wipe or skip them,
-            # then restart umbreld.service so AppStore.start() re-reads disk!
+            print("  Current yakitori-* apps in /tmp/reg.json:", yak_info.stdout.strip())
+            # Commit synced files inside the local store git repo and restart umbrel/umbreld if cached
             for sd in store_dirs:
                 run_cmd(
                     [
@@ -196,9 +200,9 @@ def main() -> None:
                 )
             run_cmd(["docker", "exec", CONTAINER, "systemctl", "restart", "umbrel"], check=False)
             run_cmd(["docker", "exec", CONTAINER, "systemctl", "restart", "umbreld"], check=False)
-            time.sleep(6.0)
+            time.sleep(8.0)
         time.sleep(2.0)
-    assert APP_ID in reg_out, f"{APP_ID} not found in appStore.registry.query! Sample: {reg_out[:800]}"
+    assert found_in_reg, f"{APP_ID} not found in appStore.registry.query!"
     print("==> Confirmed appStore.registry.query sees yakitori-act-ci@0.1.0")
 
     # Install via umbreld
@@ -403,13 +407,24 @@ def main() -> None:
         assert created_run_id in runs_body, "Run history lost after restart!"
     print("  Confirmed tokens, repos (encrypted with derived entropy), and run history survived apps.restart.mutate!")
 
-    # Checklist 6: Inspect settled logs
+    # Checklist 6: Inspect settled logs (write to /tmp/app_logs.txt inside container to avoid 64KB pipe truncation)
     print("==> Checklist 6: Checking settled apps.logs.query...")
-    logs_out = run_cmd(
-        ["docker", "exec", CONTAINER, "umbreld", "client", "apps.logs.query", "--appId", APP_ID]
-    ).stdout
-    print(logs_out[-2000:])
-    assert "Traceback (most recent call last)" not in logs_out, "Unexpected Python traceback in settled logs!"
+    logs_res = run_cmd(
+        [
+            "docker",
+            "exec",
+            CONTAINER,
+            "sh",
+            "-ec",
+            f"umbreld client apps.logs.query --appId {APP_ID} > /tmp/app_logs.txt && tail -c 2500 /tmp/app_logs.txt",
+        ]
+    )
+    print(logs_res.stdout)
+    tb_check = run_cmd(
+        ["docker", "exec", CONTAINER, "grep", "-q", "Traceback (most recent call last)", "/tmp/app_logs.txt"],
+        check=False,
+    )
+    assert tb_check.returncode != 0, "Unexpected Python traceback in settled logs!"
 
     # Update Path: bump version to 0.1.1, run apps.update.mutate, repeat checks 3 and 5
     print("==> Update Path: Bumping manifest version 0.1.0 -> 0.1.1 and running apps.update.mutate...")
