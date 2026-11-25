@@ -125,6 +125,7 @@ jobs:
         with:
           repository: Oni-giri/yakitoris-app-store
           ref: feat/yakitori-act-ci
+          fetch-depth: 0
           path: store
       - name: Check out getumbrel/umbrel-apps linter
         uses: actions/checkout@v4
@@ -156,18 +157,56 @@ jobs:
           APP_YAKITORI_ACT_CI_MASTER_KEY=dummy_master_key_0123456789abcdef0123456789abcdef \
           APP_YAKITORI_ACT_CI_CSRF_SECRET=SI_SECRET_SECRET_U5W01FSH \
           docker compose -f /tmp/umbrel-compose-check.yml config
-      - name: Probe containerized umbrelOS image in GitHub Actions VM
+      - name: Probe containerized umbrelOS image & lifecycle in GitHub Actions VM
         run: |
           set -ux
-          # Discover latest published ghcr.io/getumbrel/umbrelos tag or probe 1.4.0 / latest
+          # Test containerized umbrelOS (per umbrel-test-app skill)
           docker pull ghcr.io/getumbrel/umbrelos:latest || true
-          docker run -d --name umbrelos-test --privileged \
+          docker run -d --name umbrelos-test \
+            --privileged \
+            --network host \
             --cgroupns=host \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -v umbrelos-data:/data \
+            -v umbrelos-test:/data \
             ghcr.io/getumbrel/umbrelos:latest /sbin/init || true
-          sleep 15
+          READY=0
+          for i in $(seq 1 45); do
+            if docker exec umbrelos-test umbreld client appStore.registry.query >/dev/null 2>&1; then
+              echo "umbreld tRPC ready at iteration ${i}"
+              READY=1
+              break
+            fi
+            sleep 2
+          done
           docker ps -a --filter name=umbrelos-test
-          docker exec umbrelos-test umbreld --version 2>&1 || true
-          docker logs umbrelos-test 2>&1 | tail -n 40 || true
+          if [ "$READY" = "1" ]; then
+            echo "=== Syncing yakitori-act-ci into umbrelOS store directory ==="
+            STORE_DIR=$(docker exec umbrelos-test sh -c 'ls -d /data/umbrel-os/var/lib/umbrel/app-stores/* /home/umbrel/umbrel/app-stores/* 2>/dev/null | head -n 1')
+            echo "Detected STORE_DIR=$STORE_DIR"
+            if [ -n "$STORE_DIR" ]; then
+              docker cp store/yakitori-act-ci "umbrelos-test:${STORE_DIR}/yakitori-act-ci"
+              docker exec umbrelos-test rm -f \
+                "${STORE_DIR}/yakitori-act-ci/data/app/.gitkeep" \
+                "${STORE_DIR}/yakitori-act-ci/data/docker/.gitkeep" \
+                "${STORE_DIR}/yakitori-act-ci/data/dind-run/.gitkeep" || true
+              docker exec umbrelos-test umbreld client apps.install.mutate --appId yakitori-act-ci 2>&1 || true
+              for j in $(seq 1 30); do
+                STATE=$(docker exec umbrelos-test umbreld client apps.state.query --appId yakitori-act-ci 2>&1 || true)
+                echo "apps.state.query ($j): $STATE"
+                if echo "$STATE" | grep -q "ready"; then
+                  break
+                fi
+                sleep 2
+              done
+              docker exec umbrelos-test umbreld client apps.logs.query --appId yakitori-act-ci 2>&1 || true
+              # Check fresh-install checklist items inside umbrelOS!
+              echo "=== Check 1 & 2: UI requires Umbrel login on app port 8755 ==="
+              curl -i -sS http://127.0.0.1:8755/ | head -n 20 || true
+              echo "=== Check 3: API and MCP return 401 without token on app port 8755 ==="
+              curl -i -sS http://127.0.0.1:8755/api/v1/repos | head -n 20 || true
+              curl -i -sS -X POST http://127.0.0.1:8755/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"ping"}' | head -n 20 || true
+            fi
+          else
+            docker logs umbrelos-test 2>&1 | tail -n 60 || true
+          fi
           docker rm -f -v umbrelos-test || true
