@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Repositories · Act-CI{% endblock %}
+{% block content %}
+  <h1>Repositories</h1>
+
+  {% if flash %}
+    <div class="alert alert-info">{{ flash }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <div class="card">
+    <h2>{% if edit_repo %}Edit Repository: {{ edit_repo.name }}{% else %}Add Repository{% endif %}</h2>
+    <form method="post" action="{% if edit_repo %}/repos/{{ edit_repo.id }}/edit{% else %}/repos{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="row" style="margin-bottom:12px;">
+        <div class="field">
+          <label for="repo-name">Name</label>
+          <input id="repo-name" type="text" name="name" required value="{{ edit_repo.name if edit_repo else '' }}" placeholder="my-service">
+        </div>
+        <div class="field" style="flex:2;">
+          <label for="repo-url">Git URL (read-only clone target)</label>
+          <input id="repo-url" type="text" name="git_url" required value="{{ edit_repo.git_url if edit_repo else '' }}" placeholder="https://github.com/owner/repo.git">
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:12px;">
+        <div class="field">
+          <label for="cred-type">Read-Only Clone Credential</label>
+          <select id="cred-type" name="credential_type">
+            <option value="none" {% if edit_repo and edit_repo.credential_type == 'none' %}selected{% endif %}>None (public repository)</option>
+            <option value="token" {% if edit_repo and edit_repo.credential_type == 'token' %}selected{% endif %}>HTTPS Read-Only Token / PAT</option>
+            <option value="deploy_key" {% if edit_repo and edit_repo.credential_type == 'deploy_key' %}selected{% endif %}>SSH Read-Only Deploy Key</option>
+          </select>
+        </div>
+        <div class="field" style="flex:2;">
+          <label for="cred-val">
+            Credential Secret
+            {% if edit_repo and edit_repo.has_credential %}
+              (stored encrypted — leave blank to keep existing)
+            {% endif %}
+          </label>
+          <textarea id="cred-val" name="credential_value" style="min-height:42px;" placeholder="github_pat_... or -----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:12px;">
+        <div class="field" style="flex:2;">
+          <label for="def-img">Default Runner Image</label>
+          <input id="def-img" type="text" name="default_image" required value="{{ edit_repo.default_image if edit_repo else default_image }}">
+        </div>
+        <div class="field">
+          <label for="timeout-sec">Per-Run Timeout (seconds)</label>
+          <input id="timeout-sec" type="number" name="timeout_seconds" min="1" max="86400" required value="{{ edit_repo.timeout_seconds if edit_repo else default_timeout }}">
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:12px;">
+        <label for="secrets-text">
+          Workflow Secrets (optional, one <code>KEY=VALUE</code> per line; encrypted at rest and masked in logs)
+          {% if edit_repo and edit_repo.secret_keys %}
+            — Existing keys: <code>{{ edit_repo.secret_keys | join(', ') }}</code>
+          {% endif %}
+        </label>
+        <textarea id="secrets-text" name="secrets_text" placeholder="NPM_TOKEN=...\nTEST_API_KEY=..."></textarea>
+      </div>
+
+      {% if edit_repo and edit_repo.secret_keys %}
+      <div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+        <input id="clear-sec" type="checkbox" name="clear_secrets" value="1">
+        <label for="clear-sec" style="margin:0;">Replace existing secrets instead of merging new keys</label>
+      </div>
+      {% endif %}
+
+      <div style="display:flex; gap:10px;">
+        <button type="submit">{% if edit_repo %}Save Changes{% else %}Add Repository{% endif %}</button>
+        {% if edit_repo %}
+          <a href="/repos" class="btn btn-secondary">Cancel</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Git URL</th>
+          <th>Auth</th>
+          <th>Runner Image</th>
+          <th>Timeout</th>
+          <th>Secrets</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in repos %}
+        <tr>
+          <td><strong>{{ r.name }}</strong></td>
+          <td class="mono">{{ r.git_url }}</td>
+          <td><span class="tag">{{ r.credential_type }}</span></td>
+          <td class="mono">{{ r.default_image }}</td>
+          <td class="mono">{{ r.timeout_seconds }}s</td>
+          <td>
+            {% if r.secret_keys %}
+              <span class="tag">{{ r.secret_keys | length }} key(s)</span>
+            {% else %}
+              <span class="muted">none</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <form method="post" action="/runs/trigger" style="margin:0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="repo" value="{{ r.name }}">
+                <input type="hidden" name="ref" value="HEAD">
+                <button type="submit" class="btn-sm">Run</button>
+              </form>
+              <a href="/repos?edit={{ r.id }}" class="btn btn-secondary btn-sm">Edit</a>
+              <form method="post" action="/repos/{{ r.id }}/delete" style="margin:0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn-danger btn-sm">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="muted" style="text-align:center; padding:28px;">
+            No repositories configured yet.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Activity Audit Log · Act-CI{% endblock %}
+{% block content %}
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <h1 style="margin:0;">Append-Only Activity Log</h1>
+    <span class="muted">{{ total }} total audited API &amp; MCP call(s)</span>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Time (UTC)</th>
+          <th>Surface</th>
+          <th>Token</th>
+          <th>Role</th>
+          <th>Action</th>
+          <th>Repo</th>
+          <th>Run</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in entries %}
+        <tr>
+          <td class="mono muted">#{{ row.id }}</td>
+          <td class="mono muted">{{ row.created_at }}</td>
+          <td><span class="tag">{{ row.source }}</span></td>
+          <td class="mono">{{ row.token_name }}</td>
+          <td>{% if row.role %}<span class="tag">{{ row.role }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="mono">{{ row.action }}</td>
+          <td class="mono">{{ row.repo_name or '—' }}</td>
+          <td class="mono">
+            {% if row.run_id %}
+              <a href="/runs/{{ row.run_id }}">{{ row.run_id }}</a>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="mono">{{ row.result }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="9" class="muted" style="text-align:center; padding:28px;">
+            No API or MCP calls logged yet.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

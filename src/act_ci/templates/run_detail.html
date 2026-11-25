@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}{{ run.id }} · Act-CI{% endblock %}
+{% block content %}
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div>
+      <a href="/runs" class="muted">&larr; Back to Runs</a>
+      <h1 style="margin:4px 0 0;">
+        <span class="mono">{{ run.id }}</span>
+        <span id="run-status-badge" class="status status-{{ run.status }}" style="vertical-align:middle; margin-left:8px;">{{ run.status }}</span>
+        {% if run.private %}<span class="tag" style="vertical-align:middle;">private</span>{% endif %}
+      </h1>
+    </div>
+    <div id="cancel-form-container">
+      {% if run.status in ('queued', 'running') %}
+      <form method="post" action="/runs/{{ run.id }}/cancel">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn-danger">Cancel Run</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="align-items:flex-start;">
+      <div class="field">
+        <label>Repository</label>
+        <div><strong>{{ run.repo }}</strong></div>
+      </div>
+      <div class="field">
+        <label>Requested Ref</label>
+        <div class="mono">{{ run.ref }}</div>
+      </div>
+      <div class="field">
+        <label>Commit SHA</label>
+        <div id="run-commit-sha" class="mono">{{ run.commit_sha or '—' }}</div>
+      </div>
+      <div class="field">
+        <label>Workflow / Event</label>
+        <div class="mono">{{ run.workflow or '.github/workflows (default)' }} · {{ run.event or 'default' }}</div>
+      </div>
+      <div class="field">
+        <label>Duration</label>
+        <div id="run-duration" class="mono">
+          {% if run.duration_seconds is not none %}{{ "%.2fs"|format(run.duration_seconds) }}{% else %}—{% endif %}
+        </div>
+      </div>
+      <div class="field">
+        <label>Triggered By</label>
+        <div class="mono">{{ run.triggered_by or '—' }}</div>
+      </div>
+    </div>
+    {% if run.error_message %}
+      <div id="run-error-box" class="alert alert-error" style="margin-top:14px; margin-bottom:0;">
+        {{ run.error_message }}
+      </div>
+    {% else %}
+      <div id="run-error-box" class="alert alert-error" style="display:none; margin-top:14px; margin-bottom:0;"></div>
+    {% endif %}
+  </div>
+
+  {% if overlay_info.overlay or overlay_info.replacement_workflow %}
+  <div class="card">
+    <h2>Overlay &amp; Workflow Override</h2>
+    {% if overlay_info.overlay %}
+      <p class="muted" style="margin-top:0;">Overlay files applied to workspace:</p>
+      <ul>
+        {% for path in overlay_info.overlay.keys() %}
+          <li class="mono">{{ path }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% if overlay_info.replacement_workflow %}
+      <details class="step-block">
+        <summary><span>Replacement Workflow YAML</span></summary>
+        <div class="step-body">
+          <pre class="log-box">{{ overlay_info.replacement_workflow }}</pre>
+        </div>
+      </details>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div id="jobs-container">
+    {% for job in logs.jobs %}
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2 style="margin:0;">Job: {{ job.job_name }}</h2>
+        <span class="status status-{{ job.status }}">{{ job.status }}</span>
+      </div>
+      {% for step in job.steps %}
+      <details class="step-block" {% if step.status in ('failed', 'running') or loop.last %}open{% endif %}>
+        <summary>
+          <span>
+            <span class="tag">{{ step.stage }}</span>
+            <strong style="margin-left:6px;">{{ step.step_name }}</strong>
+          </span>
+          <span class="status status-{{ step.status }}">{{ step.status }}</span>
+        </summary>
+        <div class="step-body">
+          <pre class="log-box">{{ step.log or '(no output)' }}</pre>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card muted" id="empty-logs-msg">
+      {% if run.status in ('queued', 'running') %}
+        Waiting for runner output…
+      {% else %}
+        No step logs were recorded for this run.
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <script>
+    (function () {
+      let currentStatus = {{ run.status | tojson }};
+      const runId = {{ run.id | tojson }};
+      if (currentStatus !== "queued" && currentStatus !== "running") {
+        return;
+      }
+
+      function escapeHtml(s) {
+        const div = document.createElement("div");
+        div.textContent = s == null ? "" : String(s);
+        return div.innerHTML;
+      }
+
+      function renderJobs(jobs, status) {
+        const container = document.getElementById("jobs-container");
+        if (!jobs || jobs.length === 0) {
+          return;
+        }
+        let html = "";
+        for (const job of jobs) {
+          html += '<div class="card">';
+          html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">';
+          html += '<h2 style="margin:0;">Job: ' + escapeHtml(job.job_name) + '</h2>';
+          html += '<span class="status status-' + escapeHtml(job.status) + '">' + escapeHtml(job.status) + '</span>';
+          html += '</div>';
+          for (let i = 0; i < job.steps.length; i++) {
+            const step = job.steps[i];
+            const openAttr = (step.status === "failed" || step.status === "running" || i === job.steps.length - 1) ? " open" : "";
+            html += '<details class="step-block"' + openAttr + '>';
+            html += '<summary><span><span class="tag">' + escapeHtml(step.stage) + '</span> ';
+            html += '<strong style="margin-left:6px;">' + escapeHtml(step.step_name) + '</strong></span>';
+            html += '<span class="status status-' + escapeHtml(step.status) + '">' + escapeHtml(step.status) + '</span></summary>';
+            html += '<div class="step-body"><pre class="log-box">' + escapeHtml(step.log || "(no output)") + '</pre></div>';
+            html += '</details>';
+          }
+          html += '</div>';
+        }
+        container.innerHTML = html;
+      }
+
+      async function poll() {
+        try {
+          const resp = await fetch("/runs/" + encodeURIComponent(runId) + "/live", { credentials: "same-origin" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const r = data.run;
+          currentStatus = r.status;
+
+          const badge = document.getElementById("run-status-badge");
+          badge.className = "status status-" + r.status;
+          badge.textContent = r.status;
+
+          if (r.commit_sha) {
+            document.getElementById("run-commit-sha").textContent = r.commit_sha;
+          }
+          if (r.duration_seconds != null) {
+            document.getElementById("run-duration").textContent = r.duration_seconds.toFixed(2) + "s";
+          }
+          if (r.error_message) {
+            const errBox = document.getElementById("run-error-box");
+            errBox.style.display = "block";
+            errBox.textContent = r.error_message;
+          }
+          renderJobs(data.jobs, r.status);
+
+          if (r.status !== "queued" && r.status !== "running") {
+            const cancelWrap = document.getElementById("cancel-form-container");
+            if (cancelWrap) cancelWrap.innerHTML = "";
+            return;
+          }
+        } catch (e) {
+          // Transient network hiccup; retry next tick
+        }
+        setTimeout(poll, 1500);
+      }
+
+      setTimeout(poll, 1500);
+    })();
+  </script>
+{% endblock %}

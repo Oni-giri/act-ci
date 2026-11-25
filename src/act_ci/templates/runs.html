@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Runs · Act-CI{% endblock %}
+{% block content %}
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <h1 style="margin:0;">Workflow Runs</h1>
+    <a href="/repos" class="btn btn-secondary btn-sm">Manage Repos</a>
+  </div>
+
+  {% if flash %}
+    <div class="alert alert-info">{{ flash }}</div>
+  {% endif %}
+
+  <div class="card">
+    <form method="get" action="/runs" class="row">
+      <div class="field">
+        <label for="filter-repo">Repository</label>
+        <select id="filter-repo" name="repo">
+          <option value="">All repositories</option>
+          {% for r in repos %}
+            <option value="{{ r.name }}" {% if selected_repo == r.name %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="filter-status">Status</label>
+        <select id="filter-status" name="status">
+          <option value="">All statuses</option>
+          {% for st in statuses %}
+            <option value="{{ st }}" {% if selected_status == st %}selected{% endif %}>{{ st }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <button type="submit">Filter</button>
+        {% if selected_repo or selected_status %}
+          <a href="/runs" class="btn btn-secondary">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  {% if repos %}
+  <div class="card">
+    <h2>Trigger Run</h2>
+    <form method="post" action="/runs/trigger" class="row">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label for="trig-repo">Repository</label>
+        <select id="trig-repo" name="repo" required>
+          {% for r in repos %}
+            <option value="{{ r.name }}" {% if selected_repo == r.name %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="trig-ref">Ref / Commit SHA</label>
+        <input id="trig-ref" type="text" name="ref" value="HEAD" required>
+      </div>
+      <div class="field">
+        <label for="trig-wf">Workflow Path (optional)</label>
+        <input id="trig-wf" type="text" name="workflow" placeholder=".github/workflows/ci.yml">
+      </div>
+      <div class="field" style="max-width:160px;">
+        <label for="trig-ev">Event (optional)</label>
+        <input id="trig-ev" type="text" name="event" placeholder="push">
+      </div>
+      <div style="display:flex; align-items:center; gap:6px; padding-bottom:8px;">
+        <input id="trig-priv" type="checkbox" name="private" value="1">
+        <label for="trig-priv" style="margin:0;">Private</label>
+      </div>
+      <div>
+        <button type="submit">Run Workflow</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table>
+      <thead>
+        <tr>
+          <th>Run</th>
+          <th>Status</th>
+          <th>Repo</th>
+          <th>Ref / Commit</th>
+          <th>Duration</th>
+          <th>Started / Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr>
+          <td>
+            <a href="/runs/{{ run.id }}" class="mono">{{ run.id }}</a>
+            {% if run.private %}<span class="tag">private</span>{% endif %}
+            {% if run.has_overlay %}<span class="tag">overlay</span>{% endif %}
+          </td>
+          <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
+          <td><strong>{{ run.repo }}</strong></td>
+          <td class="mono">
+            {{ run.ref }}
+            {% if run.commit_sha %}
+              <span class="muted">({{ run.commit_sha[:8] }})</span>
+            {% endif %}
+          </td>
+          <td class="mono">
+            {% if run.duration_seconds is not none %}
+              {{ "%.1fs"|format(run.duration_seconds) }}
+            {% elif run.status == 'running' %}
+              running…
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="mono muted">{{ run.started_at or run.created_at }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="muted" style="text-align:center; padding:28px;">
+            No runs recorded yet. {% if not repos %}Add a repository on the <a href="/repos">Repos</a> page to get started.{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

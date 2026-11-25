@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Act-CI{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171a23;
+      --panel-alt: #1e2230;
+      --border: #2a3042;
+      --text: #e6e9f2;
+      --muted: #939bb2;
+      --accent: #4f8cff;
+      --accent-hover: #6ca0ff;
+      --green: #2ecc71;
+      --red: #ef5350;
+      --amber: #f59e0b;
+      --purple: #a78bfa;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .brand-badge {
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+    }
+    nav { display: flex; gap: 6px; }
+    nav a {
+      color: var(--muted);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-weight: 500;
+      text-decoration: none;
+    }
+    nav a:hover { color: var(--text); background: var(--panel-alt); }
+    nav a.active { color: #fff; background: var(--panel-alt); border: 1px solid var(--border); }
+    main { max-width: 1180px; margin: 24px auto; padding: 0 24px 48px; }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    h2 { font-size: 16px; margin: 0 0 12px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 180px; }
+    label { font-size: 12px; color: var(--muted); font-weight: 600; }
+    input[type="text"], input[type="number"], input[type="password"], select, textarea {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      width: 100%;
+    }
+    textarea { font-family: var(--font-mono); min-height: 84px; resize: vertical; }
+    button, .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+    }
+    button:hover, .btn:hover { background: var(--accent-hover); text-decoration: none; }
+    .btn-secondary { background: var(--panel-alt); border: 1px solid var(--border); color: var(--text); }
+    .btn-secondary:hover { background: #282e40; }
+    .btn-danger { background: #b91c1c; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    th { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    code, .mono { font-family: var(--font-mono); font-size: 12px; }
+    .status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .status-passed { background: rgba(46,204,113,0.16); color: var(--green); }
+    .status-failed { background: rgba(239,83,80,0.18); color: var(--red); }
+    .status-running { background: rgba(79,140,255,0.18); color: var(--accent); }
+    .status-queued { background: rgba(245,158,11,0.18); color: var(--amber); }
+    .status-cancelled, .status-skipped { background: rgba(147,155,178,0.18); color: var(--muted); }
+    .status-timed_out { background: rgba(167,139,250,0.18); color: var(--purple); }
+    .tag {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .alert {
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+    }
+    .alert-info { background: rgba(79,140,255,0.12); border-color: rgba(79,140,255,0.35); }
+    .alert-error { background: rgba(239,83,80,0.12); border-color: rgba(239,83,80,0.35); color: #fca5a5; }
+    .alert-warn { background: rgba(245,158,11,0.14); border-color: rgba(245,158,11,0.4); }
+    .muted { color: var(--muted); }
+    pre.log-box {
+      margin: 0;
+      padding: 12px;
+      background: #090b10;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #d5dbea;
+    }
+    details.step-block {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: var(--panel-alt);
+    }
+    details.step-block summary {
+      padding: 8px 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 500;
+    }
+    details.step-block .step-body { padding: 0 10px 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/runs" class="brand">
+      <span>Act-CI</span>
+      <span class="brand-badge">act</span>
+    </a>
+    <nav>
+      <a href="/runs" class="{% if active_nav == 'runs' %}active{% endif %}">Runs</a>
+      <a href="/repos" class="{% if active_nav == 'repos' %}active{% endif %}">Repos</a>
+      <a href="/tokens" class="{% if active_nav == 'tokens' %}active{% endif %}">Tokens</a>
+      <a href="/activity" class="{% if active_nav == 'activity' %}active{% endif %}">Activity</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

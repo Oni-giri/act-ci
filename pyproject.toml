@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "act-ci"
+version = "0.1.0"
+description = "Self-hosted GitHub Actions CI service powered by nektos/act for Umbrel"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+  { name = "yakitori", email = "89288375+Oni-giri@users.noreply.github.com" },
+]
+dependencies = [
+  "fastapi>=0.115.0,<1.0.0",
+  "uvicorn[standard]>=0.30.0,<1.0.0",
+  "jinja2>=3.1.4,<4.0.0",
+  "python-multipart>=0.0.12,<1.0.0",
+  "cryptography>=43.0.0,<47.0.0",
+  "httpx>=0.27.0,<1.0.0",
+  "pydantic>=2.8.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0,<10.0.0",
+  "pytest-asyncio>=0.24.0,<2.0.0",
+]
+
+[project.scripts]
+act-ci = "act_ci.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+act_ci = ["templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "docker: Level 2/3 tests that require a real Docker daemon and nektos/act binary",
+]
