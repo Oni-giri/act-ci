@@ -81,18 +81,24 @@ def main() -> None:
     store_pkg = Path("store") / APP_ID
     assert store_pkg.is_dir(), f"Missing package directory {store_pkg}"
 
-    # Locate ALL synced Umbrel store directories inside containerized umbrelOS (following symlinks via -L)
-    store_dir_res = run_cmd(
-        [
-            "docker",
-            "exec",
-            CONTAINER,
-            "sh",
-            "-ec",
-            "find -L /data -maxdepth 6 -type d -name 'getumbrel-umbrel-apps-github-*' 2>/dev/null || true",
-        ]
-    )
-    store_dirs = sorted({d.strip() for d in store_dir_res.stdout.splitlines() if d.strip()})
+    # Wait for umbreld to finish cloning the default app-store into /home/umbrel/umbrel/app-stores/
+    store_dirs: list[str] = []
+    for _ in range(30):
+        store_dir_res = run_cmd(
+            [
+                "docker",
+                "exec",
+                CONTAINER,
+                "sh",
+                "-ec",
+                "find -L /data /home/umbrel/umbrel/app-stores -maxdepth 5 -type d -name 'getumbrel-umbrel-apps-github-*' 2>/dev/null || true",
+            ]
+        )
+        store_dirs = sorted({d.strip() for d in store_dir_res.stdout.splitlines() if d.strip()})
+        if store_dirs:
+            break
+        time.sleep(2.0)
+
     if not store_dirs:
         diag = run_cmd(
             ["docker", "exec", CONTAINER, "sh", "-ec", "ls -la /data /data/umbrel-os /home/umbrel/umbrel/app-stores 2>&1 || true"],
