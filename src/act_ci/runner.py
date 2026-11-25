@@ -64,7 +64,11 @@ def map_act_json_event(event: dict[str, Any]) -> dict[str, Any]:
     job_name = str(event.get("job") or event.get("jobID") or "Workflow")
     stage = str(event.get("stage") or "Main")
     step_name = str(event.get("step") or "")
-    step_id_raw = str(event.get("stepID") or step_name or "__job__")
+    raw_stepid = event.get("stepID") or event.get("stepid")
+    if isinstance(raw_stepid, list):
+        step_id_raw = "/".join(str(x) for x in raw_stepid) or step_name or "__job__"
+    else:
+        step_id_raw = str(raw_stepid or step_name or "__job__")
     if stage and stage != "Main" and step_id_raw != "__job__":
         step_id = f"{stage}:{step_id_raw}"
     else:
@@ -72,7 +76,12 @@ def map_act_json_event(event: dict[str, Any]) -> dict[str, Any]:
     if not step_name:
         step_name = "Job Setup / Summary"
 
-    execution_result = str(event.get("executionResult") or "").lower()
+    execution_result = str(
+        event.get("executionResult")
+        or event.get("stepResult")
+        or event.get("jobResult")
+        or ""
+    ).lower()
     raw_output = event.get("rawOutput") is True
     msg = str(event.get("msg") or "")
 
@@ -518,14 +527,19 @@ class RunnerWorker:
                 run_id,
             )
         else:
-            # Try shallow fetch of ref/full-SHA first; fall back to full fetch for short SHAs
-            rc, out = await self._exec_git_allow_fail(
-                [git, "fetch", "--depth=1", "origin", requested_ref],
-                workspace_dir,
-                git_env,
-                deadline,
-                run_id,
-            )
+            # For local directory paths (e.g. fixture repos), full fetch ensures non-tip
+            # commit SHAs work across all git uploadpack.allowReachableSHA1InWant defaults.
+            is_local_repo = git_url.startswith("/") or git_url.startswith("file://")
+            rc = 1
+            out = ""
+            if not is_local_repo:
+                rc, out = await self._exec_git_allow_fail(
+                    [git, "fetch", "--depth=1", "origin", requested_ref],
+                    workspace_dir,
+                    git_env,
+                    deadline,
+                    run_id,
+                )
             if rc == 0:
                 await self._exec_git(
                     [git, "checkout", "--detach", "FETCH_HEAD"],
@@ -537,7 +551,7 @@ class RunnerWorker:
                 )
             else:
                 await self._exec_git(
-                    [git, "fetch", "origin"],
+                    [git, "fetch", "--tags", "origin"],
                     workspace_dir,
                     git_env,
                     masker,
@@ -561,12 +575,30 @@ class RunnerWorker:
                         run_id,
                     )
                     if rc_br != 0:
-                        raise _CloneFailed(
-                            rc_co,
-                            masker.mask(
-                                f"Failed to checkout ref '{requested_ref}': {out_co.strip() or out.strip()}"
-                            ),
+                        # Last resort: direct fetch of exact SHA with allowanysha1
+                        rc_sha, out_sha = await self._exec_git_allow_fail(
+                            [git, "fetch", "origin", requested_ref],
+                            workspace_dir,
+                            git_env,
+                            deadline,
+                            run_id,
                         )
+                        if rc_sha == 0:
+                            await self._exec_git(
+                                [git, "checkout", "--detach", "FETCH_HEAD"],
+                                workspace_dir,
+                                git_env,
+                                masker,
+                                deadline,
+                                run_id,
+                            )
+                        else:
+                            raise _CloneFailed(
+                                rc_co,
+                                masker.mask(
+                                    f"Failed to checkout ref '{requested_ref}': {out_co.strip() or out.strip()}"
+                                ),
+                            )
 
         sha_out = await self._exec_git(
             [git, "rev-parse", "HEAD"],

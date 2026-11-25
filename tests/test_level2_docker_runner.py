@@ -199,9 +199,9 @@ async def test_level2_passing_failing_overlay_replacement_and_callback(
             ),
         )
         res1 = await _wait_for_run(svc, r1.id)
-        assert res1.status == "passed"
-        assert res1.commit_sha == sha_pass
         logs1 = svc.get_run_logs(ADMIN_PRINCIPAL, r1.id)
+        assert res1.status == "passed", f"r1 failed ({res1.error_message}):\n{logs1.raw_log}"
+        assert res1.commit_sha == sha_pass
         assert "UNCHANGED_REPO_CONTENT" in logs1.raw_log
         _assert_slot_clean(settings, docker_host)
         assert received_callbacks[-1] == {"run_id": r1.id, "status": "passed"}
@@ -216,8 +216,8 @@ async def test_level2_passing_failing_overlay_replacement_and_callback(
             ),
         )
         res2 = await _wait_for_run(svc, r2.id)
-        assert res2.status == "failed"
         logs2 = svc.get_run_logs(ADMIN_PRINCIPAL, r2.id)
+        assert res2.status == "failed", f"r2 unexpected status ({res2.status}):\n{logs2.raw_log}"
         assert "ABOUT_TO_FAIL_MARKER" in logs2.raw_log
         _assert_slot_clean(settings, docker_host)
         assert received_callbacks[-1] == {"run_id": r2.id, "status": "failed"}
@@ -246,8 +246,8 @@ async def test_level2_passing_failing_overlay_replacement_and_callback(
             ),
         )
         res3 = await _wait_for_run(svc, r3.id)
-        assert res3.status == "passed"
         logs3 = svc.get_run_logs(ADMIN_PRINCIPAL, r3.id)
+        assert res3.status == "passed", f"r3 failed ({res3.error_message}):\n{logs3.raw_log}"
         assert "OVERLAY_VERIFIED" in logs3.raw_log
         assert "MASK_ME_IN_REAL_ACT_778899" not in logs3.raw_log
         _assert_slot_clean(settings, docker_host)
