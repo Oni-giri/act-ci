@@ -1,213 +1,309 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Act-CI{% endblock %}</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Crect width='64' height='64' rx='14' fill='%230F1420'/%3E%3Crect x='9' y='9' width='46' height='46' rx='10' fill='%23172033' stroke='%234F8CFF' stroke-opacity='.45' stroke-width='1.5'/%3E%3Cpath d='M32 43h5a9 9 0 0 0 9-9v-6' stroke='%2322D3EE' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='43' r='2.5' fill='%230F172A' stroke='%2360A5FA' stroke-width='2'/%3E%3Cpath d='M18 23l11.5 10L18 43' stroke='%234F8CFF' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='46' cy='22' r='6.5' fill='%2310B981'/%3E%3Cpath d='M43 22.2l2 2 4-4.2' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="/ui-assets/act-ci-mark.svg">
+  <link rel="stylesheet" href="/ui-assets/omakase/css/omakase.css">
   <style>
-    :root {
-      --bg: #0f1117;
-      --panel: #171a23;
-      --panel-alt: #1e2230;
-      --border: #2a3042;
-      --text: #e6e9f2;
-      --muted: #939bb2;
-      --accent: #4f8cff;
-      --accent-hover: #6ca0ff;
-      --green: #2ecc71;
-      --red: #ef5350;
-      --amber: #f59e0b;
-      --purple: #a78bfa;
-      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-    * { box-sizing: border-box; }
-    body {
+    .om-log-pre {
       margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    header {
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      padding: 0 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 56px;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 16px;
-      color: var(--text);
-      text-decoration: none;
-    }
-    .brand-badge {
-      background: var(--accent);
-      color: #fff;
-      font-size: 11px;
-      padding: 2px 7px;
-      border-radius: 4px;
-      font-family: var(--font-mono);
-    }
-    nav { display: flex; gap: 6px; }
-    nav a {
-      color: var(--muted);
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-weight: 500;
-      text-decoration: none;
-    }
-    nav a:hover { color: var(--text); background: var(--panel-alt); }
-    nav a.active { color: #fff; background: var(--panel-alt); border: 1px solid var(--border); }
-    main { max-width: 1180px; margin: 24px auto; padding: 0 24px 48px; }
-    h1 { font-size: 20px; margin: 0 0 16px; }
-    h2 { font-size: 16px; margin: 0 0 12px; }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 18px;
-      margin-bottom: 20px;
-    }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
-    .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 180px; }
-    label { font-size: 12px; color: var(--muted); font-weight: 600; }
-    input[type="text"], input[type="number"], input[type="password"], select, textarea {
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 8px 10px;
-      font-size: 13px;
-      width: 100%;
-    }
-    textarea { font-family: var(--font-mono); min-height: 84px; resize: vertical; }
-    button, .btn {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 8px 14px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      text-decoration: none;
-    }
-    button:hover, .btn:hover { background: var(--accent-hover); text-decoration: none; }
-    .btn-secondary { background: var(--panel-alt); border: 1px solid var(--border); color: var(--text); }
-    .btn-secondary:hover { background: #282e40; }
-    .btn-danger { background: #b91c1c; }
-    .btn-danger:hover { background: #dc2626; }
-    .btn-sm { padding: 5px 10px; font-size: 12px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td {
-      text-align: left;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-    th { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-    code, .mono { font-family: var(--font-mono); font-size: 12px; }
-    .status {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-    }
-    .status-passed { background: rgba(46,204,113,0.16); color: var(--green); }
-    .status-failed { background: rgba(239,83,80,0.18); color: var(--red); }
-    .status-running { background: rgba(79,140,255,0.18); color: var(--accent); }
-    .status-queued { background: rgba(245,158,11,0.18); color: var(--amber); }
-    .status-cancelled, .status-skipped { background: rgba(147,155,178,0.18); color: var(--muted); }
-    .status-timed_out { background: rgba(167,139,250,0.18); color: var(--purple); }
-    .tag {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 11px;
-      background: var(--panel-alt);
-      border: 1px solid var(--border);
-      color: var(--muted);
-    }
-    .alert {
-      padding: 12px 14px;
-      border-radius: 6px;
-      margin-bottom: 16px;
-      border: 1px solid var(--border);
-    }
-    .alert-info { background: rgba(79,140,255,0.12); border-color: rgba(79,140,255,0.35); }
-    .alert-error { background: rgba(239,83,80,0.12); border-color: rgba(239,83,80,0.35); color: #fca5a5; }
-    .alert-warn { background: rgba(245,158,11,0.14); border-color: rgba(245,158,11,0.4); }
-    .muted { color: var(--muted); }
-    pre.log-box {
-      margin: 0;
-      padding: 12px;
-      background: #090b10;
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      padding: var(--space-3) var(--space-3\.5);
+      background: var(--surface-sunken);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-md);
       font-family: var(--font-mono);
       font-size: 12px;
+      line-height: 1.55;
+      color: var(--ink-2);
       overflow-x: auto;
       white-space: pre-wrap;
       word-break: break-word;
-      color: #d5dbea;
     }
-    details.step-block {
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin-bottom: 8px;
-      background: var(--panel-alt);
+    .om-step-detail {
+      border-top: 1px dashed var(--line-soft);
+      padding: 6px 0;
     }
-    details.step-block summary {
-      padding: 8px 12px;
-      cursor: pointer;
+    .om-step-detail:first-child {
+      border-top: 0;
+    }
+    .om-step-summary {
+      list-style: none;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      font-weight: 500;
+      gap: 10px;
+      padding: 6px 0;
+      cursor: pointer;
+      font-size: 13.5px;
+      color: var(--ink-2);
     }
-    details.step-block .step-body { padding: 0 10px 10px; }
+    .om-step-summary::-webkit-details-marker {
+      display: none;
+    }
+    .om-form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: var(--space-3\.5);
+    }
+    .om-field-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1\.5);
+    }
+    .om-radio-card {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 14px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      cursor: pointer;
+    }
+    .om-radio-card:has(input:checked) {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+      background: var(--accent-wash);
+    }
+    .om-mobile-nav {
+      display: none;
+    }
+    @media (max-width: 860px) {
+      .om-shell {
+        flex-direction: column;
+      }
+      .om-sidebar {
+        display: none;
+      }
+      .om-rail {
+        flex: none;
+        width: 100%;
+        border-left: 0;
+        border-top: 1px solid var(--line-soft);
+      }
+      .om-main {
+        padding: 16px 16px 88px;
+      }
+      .om-mobile-nav {
+        display: flex;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 35;
+        background: var(--glass);
+        backdrop-filter: blur(var(--blur-glass));
+        -webkit-backdrop-filter: blur(var(--blur-glass));
+        border-top: 1px solid var(--line);
+        padding: 6px 12px;
+        justify-content: space-around;
+      }
+    }
   </style>
 </head>
-<body>
-  <header>
-    <a href="/runs" class="brand">
-      <svg width="26" height="26" viewBox="0 0 64 64" fill="none" aria-hidden="true" style="flex-shrink:0;">
-        <rect width="64" height="64" rx="14" fill="#0F1420"/>
-        <rect x="7" y="7" width="50" height="50" rx="11" fill="#172033" stroke="#4F8CFF" stroke-opacity="0.4" stroke-width="1.8"/>
-        <path d="M32 44H37C41.97 44 46 39.97 46 35V28" stroke="#22D3EE" stroke-width="4.2" stroke-linecap="round"/>
-        <circle cx="32" cy="44" r="2.6" fill="#0F172A" stroke="#60A5FA" stroke-width="2"/>
-        <path d="M17.5 23L29.5 33.5L17.5 44" stroke="#4F8CFF" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="46" cy="22" r="7" fill="#10B981"/>
-        <path d="M42.8 22.2L44.9 24.3L49.3 19.8" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <span>Act-CI</span>
-      <span class="brand-badge">act</span>
-    </a>
-    <nav>
-      <a href="/runs" class="{% if active_nav == 'runs' %}active{% endif %}">Runs</a>
-      <a href="/repos" class="{% if active_nav == 'repos' %}active{% endif %}">Repos</a>
-      <a href="/tokens" class="{% if active_nav == 'tokens' %}active{% endif %}">Tokens</a>
-      <a href="/activity" class="{% if active_nav == 'activity' %}active{% endif %}">Activity</a>
+<body class="om-app om-canvas" style="background-attachment:fixed">
+  <div class="om-shell">
+    <nav class="om-sidebar" aria-label="Main">
+      <a href="/runs" class="om-brand" style="text-decoration:none;color:var(--ink)">
+        <img src="/ui-assets/act-ci-mark.svg" width="30" height="30" alt="">
+        <div style="display:flex;flex-direction:column;line-height:1.25">
+          <span class="om-brand-name">Act-CI</span>
+          <span class="om-brand-sub">Local act runner</span>
+        </div>
+      </a>
+
+      <div class="om-nav-group">
+        <a class="om-nav {% if active_nav == 'runs' %}om-nav-on{% endif %}" href="/runs" {% if active_nav == 'runs' %}aria-current="page"{% endif %}>
+          <img src="/ui-assets/omakase/icons/pipeline.svg" alt="">Runs
+          <span class="om-count">{{ nav_runs_count }}</span>
+        </a>
+        <a class="om-nav {% if active_nav == 'repos' %}om-nav-on{% endif %}" href="/repos" {% if active_nav == 'repos' %}aria-current="page"{% endif %}>
+          <img src="/ui-assets/omakase/icons/board.svg" alt="">Repositories
+          <span class="om-count">{{ nav_repos_count }}</span>
+        </a>
+      </div>
+
+      {% if sidebar_repos %}
+      <div class="om-nav-group">
+        <span class="om-overline">Repositories</span>
+        {% for sr in sidebar_repos %}
+        <a class="om-nav {% if selected_repo is defined and selected_repo == sr.name %}om-nav-on{% endif %}" href="/runs?repo={{ sr.name|urlencode }}">
+          <span class="om-proj" style="--p:{{ sr.color }}">{{ sr.name }}</span>
+          <span class="om-count">{{ sr.run_count }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="om-nav-group om-nav-group-end">
+        <span class="om-overline">Workspace</span>
+        <a class="om-nav {% if active_nav == 'tokens' %}om-nav-on{% endif %}" href="/tokens" {% if active_nav == 'tokens' %}aria-current="page"{% endif %}>
+          <img src="/ui-assets/omakase/icons/access.svg" alt="">API tokens
+          <span class="om-count">{{ nav_tokens_count }}</span>
+        </a>
+        <a class="om-nav {% if active_nav == 'activity' %}om-nav-on{% endif %}" href="/activity" {% if active_nav == 'activity' %}aria-current="page"{% endif %}>
+          <img src="/ui-assets/omakase/icons/shield-check.svg" alt="">Activity log
+          {% if nav_denied_count > 0 %}
+            <span class="om-count om-count-alert">{{ nav_denied_count }}<span class="om-sr"> blocked requests</span></span>
+          {% endif %}
+        </a>
+      </div>
     </nav>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+
+    <main class="om-main">
+      {% block content %}{% endblock %}
+    </main>
+
+    {% block rail %}{% endblock %}
+  </div>
+
+  <nav class="om-mobile-nav" aria-label="Mobile navigation">
+    <a class="om-nav {% if active_nav == 'runs' %}om-nav-on{% endif %}" href="/runs">Runs</a>
+    <a class="om-nav {% if active_nav == 'repos' %}om-nav-on{% endif %}" href="/repos">Repos</a>
+    <a class="om-nav {% if active_nav == 'tokens' %}om-nav-on{% endif %}" href="/tokens">Tokens</a>
+    <a class="om-nav {% if active_nav == 'activity' %}om-nav-on{% endif %}" href="/activity">Activity</a>
+  </nav>
+
+  <div id="om-cmd-overlay" class="om-overlay om-overlay-top" style="display:none" onclick="window.__omClosePalette && window.__omClosePalette()">
+    <div class="om-palette" role="dialog" aria-modal="true" aria-label="Command palette" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line-soft)">
+        <img src="/ui-assets/omakase/icons/search.svg" width="15" height="15" alt="">
+        <input id="om-cmd-input" class="om-palette-in" placeholder="Go to a page or filter by repository…" aria-label="Command">
+        <kbd class="om-kbd">Esc</kbd>
+      </div>
+      <div id="om-cmd-list" style="padding:8px;max-height:380px;overflow:auto" role="listbox">
+        <div class="om-palette-g">Pages</div>
+        <a class="om-palette-it" href="/runs" data-cmd-item><span style="flex:1">Open workflow runs</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">/runs</span></a>
+        <a class="om-palette-it" href="/repos" data-cmd-item><span style="flex:1">Manage repositories</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">/repos</span></a>
+        <a class="om-palette-it" href="/tokens" data-cmd-item><span style="flex:1">Manage API tokens</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">/tokens</span></a>
+        <a class="om-palette-it" href="/activity" data-cmd-item><span style="flex:1">Inspect activity audit log</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">/activity</span></a>
+        {% if sidebar_repos %}
+        <div class="om-palette-g">Repositories</div>
+        {% for sr in sidebar_repos %}
+        <a class="om-palette-it" href="/runs?repo={{ sr.name|urlencode }}" data-cmd-item>
+          <span class="om-proj" style="--p:{{ sr.color }};flex:1">{{ sr.name }}</span>
+          <span style="font-size:12px;color:var(--ink-subtle)">Filter runs</span>
+        </a>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if flash %}
+  <div id="om-flash-toast" class="om-toast-wrap">
+    <div class="om-toast" role="status">
+      <span class="om-st om-st-ok" aria-hidden="true"></span>
+      <span>{{ flash }}</span>
+      <button type="button" class="om-toast-act" onclick="document.getElementById('om-flash-toast').remove()">Dismiss</button>
+    </div>
+  </div>
+  {% endif %}
+
+  <script>
+    (function () {
+      const overlay = document.getElementById("om-cmd-overlay");
+      const input = document.getElementById("om-cmd-input");
+      const items = Array.from(document.querySelectorAll("[data-cmd-item]"));
+
+      window.__omOpenPalette = function () {
+        if (!overlay || !input) return;
+        overlay.style.display = "flex";
+        input.value = "";
+        filterItems("");
+        input.focus();
+      };
+      window.__omClosePalette = function () {
+        if (overlay) overlay.style.display = "none";
+      };
+
+      function filterItems(q) {
+        const needle = q.trim().toLowerCase();
+        items.forEach(function (el) {
+          const match = !needle || el.textContent.toLowerCase().indexOf(needle) !== -1;
+          el.style.display = match ? "flex" : "none";
+        });
+      }
+
+      if (input) {
+        input.addEventListener("input", function () { filterItems(input.value); });
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Escape") { window.__omClosePalette(); }
+          if (e.key === "Enter") {
+            const first = items.find(function (el) { return el.style.display !== "none"; });
+            if (first) { window.location.href = first.getAttribute("href"); }
+          }
+        });
+      }
+
+      window.addEventListener("keydown", function (e) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+          e.preventDefault();
+          if (overlay && overlay.style.display === "none") window.__omOpenPalette();
+          else window.__omClosePalette();
+        } else if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes((document.activeElement || {}).tagName)) {
+          e.preventDefault();
+          window.__omOpenPalette();
+        } else if (e.key === "Escape") {
+          window.__omClosePalette();
+          document.querySelectorAll("[data-om-modal]").forEach(function (m) { m.style.display = "none"; });
+        }
+      });
+
+      window.__omOpenModal = function (id) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "flex";
+      };
+      window.__omCloseModal = function (id) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "none";
+      };
+
+      // InteractiveSwitch: toggle button + hidden checkbox input
+      document.querySelectorAll("[data-om-switch]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          const targetId = btn.getAttribute("data-om-switch");
+          const hidden = document.getElementById(targetId);
+          if (!hidden) return;
+          const next = btn.getAttribute("aria-checked") !== "true";
+          btn.setAttribute("aria-checked", next ? "true" : "false");
+          btn.classList.toggle("om-switch-on", next);
+          hidden.disabled = !next;
+        });
+      });
+
+      // HoldButton: press-and-hold 900ms for irreversible actions without confirm pop-ups
+      document.querySelectorAll("[data-om-hold-form]").forEach(function (btn) {
+        const fill = btn.querySelector(".om-hold-fill");
+        const form = btn.closest("form");
+        let timer = null;
+        const duration = 900;
+        function stop() {
+          if (timer !== null) { window.clearInterval(timer); timer = null; }
+          if (fill) fill.style.width = "0%";
+        }
+        function start() {
+          if (timer !== null || !form) return;
+          const t0 = Date.now();
+          timer = window.setInterval(function () {
+            const pct = Math.min(100, ((Date.now() - t0) / duration) * 100);
+            if (fill) fill.style.width = pct + "%";
+            if (pct >= 100) { stop(); form.submit(); }
+          }, 25);
+        }
+        btn.addEventListener("pointerdown", start);
+        btn.addEventListener("pointerup", stop);
+        btn.addEventListener("pointerleave", stop);
+        btn.addEventListener("keydown", function (e) {
+          if (e.key === " " || e.key === "Enter") { e.preventDefault(); start(); }
+        });
+        btn.addEventListener("keyup", function (e) {
+          if (e.key === " " || e.key === "Enter") stop();
+        });
+      });
+    })();
+  </script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

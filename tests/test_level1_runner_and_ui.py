@@ -228,10 +228,18 @@ async def test_runner_lifecycle_with_stub_act_clone_overlay_timeout_queue_and_cl
 
 
 def test_web_ui_pages_filters_forms_and_csrf(client: TestClient) -> None:
-    # 1. Runs list loads empty state
+    # 1. Runs list loads empty state with Omakase canvas, CSS, and sentence-case heading
     r_home = client.get("/")
     assert r_home.status_code == 200
-    assert "Workflow Runs" in r_home.text
+    assert "Workflow runs" in r_home.text
+    assert 'class="om-app om-canvas"' in r_home.text
+    assert "/ui-assets/omakase/css/omakase.css" in r_home.text
+
+    # Verify Omakase stylesheet and icons are served and protected from bearer tokens
+    css_resp = client.get("/ui-assets/omakase/css/omakase.css")
+    assert css_resp.status_code == 200
+    assert "--canvas:" in css_resp.text
+    assert client.get("/ui-assets/../ui_routes.py").status_code == 404
 
     # 2. Repos page: create and edit repo, verify CSRF enforcement
     r_repos = client.get("/repos")
@@ -293,4 +301,4 @@ def test_web_ui_pages_filters_forms_and_csrf(client: TestClient) -> None:
         follow_redirects=True,
     )
     assert cancel.status_code == 200
-    assert "cancelled" in cancel.text
+    assert "Cancelled" in cancel.text

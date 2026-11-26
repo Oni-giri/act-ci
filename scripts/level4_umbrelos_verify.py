@@ -203,7 +203,7 @@ def main() -> None:
             time.sleep(8.0)
         time.sleep(2.0)
     assert found_in_reg, f"{APP_ID} not found in appStore.registry.query!"
-    print("==> Confirmed appStore.registry.query sees yakitori-act-ci@0.1.0")
+    print("==> Confirmed appStore.registry.query sees yakitori-act-ci")
 
     # Install via umbreld
     print("==> Running: umbreld client apps.install.mutate --appId yakitori-act-ci")
@@ -224,12 +224,11 @@ def main() -> None:
     print(f"  GET :{APP_PORT}/tokens -> status={tok_code}, location={tok_hdrs.get('Location') or tok_hdrs.get('location')}")
     assert ui_code in (302, 307, 401, 403), f"Expected Umbrel auth gate on /, got {ui_code}"
     assert tok_code in (302, 307, 401, 403), f"Expected Umbrel auth gate on /tokens, got {tok_code}"
-    assert "Create Bearer Token" not in tok_body, "Unauthenticated caller reached /tokens HTML!"
-
+    assert "create bearer token" not in tok_body.lower(), "Unauthenticated caller reached /tokens HTML!"
     # Also confirm raw internal container port 8080 is NOT published on the host
     try:
-        raw_code, _, _ = http_req("GET", "http://127.0.0.1:8080/")
-        assert raw_code != 200 or "Workflow Runs" not in _
+        raw_code, _, raw_body = http_req("GET", "http://127.0.0.1:8080/")
+        assert raw_code != 200 or "workflow runs" not in raw_body.lower()
     except urllib.error.URLError:
         print("  Confirmed raw internal port 8080 is not exposed on host")
 

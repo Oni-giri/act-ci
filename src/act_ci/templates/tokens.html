@@ -1,92 +1,141 @@
 {% extends "base.html" %}
-{% block title %}API Tokens · Act-CI{% endblock %}
-{% block content %}
-  <h1>API &amp; MCP Bearer Tokens</h1>
+{% from "_macros.html" import status_glyph %}
+{% block title %}API tokens · Act-CI{% endblock %}
 
-  {% if flash %}
-    <div class="alert alert-info">{{ flash }}</div>
-  {% endif %}
+{% block content %}
+  <header class="om-page-h">
+    <div>
+      <h1 class="om-page-t">API tokens</h1>
+      <p class="om-hint" style="margin:4px 0 0">Named bearer tokens shared by the REST API and the MCP server. Only SHA-256 hashes are stored.</p>
+    </div>
+  </header>
+
   {% if error %}
-    <div class="alert alert-error">{{ error }}</div>
+  <div class="om-alert" role="alert">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="var(--text-danger)" stroke-width="1.6" aria-hidden="true" style="flex:none;margin-top:1px"><circle cx="8" cy="8" r="6"/><path d="M8 4.5v4M8 10.8v.4"/></svg>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <strong style="font-weight:600">{{ error }}</strong>
+      <span style="color:var(--ink-2)">Enter a token name between 1 and 128 characters and pick a role.</span>
+    </div>
+  </div>
   {% endif %}
 
   {% if created_token %}
-    <div class="alert alert-warn">
-      <strong>Copy your new {{ created_token_meta.role }} token "{{ created_token_meta.name }}" now — it is shown only once and only its SHA-256 hash is stored:</strong>
-      <div style="margin-top:8px;">
-        <code id="new-token-value" style="display:block; padding:10px; background:#090b10; border:1px solid var(--border); border-radius:6px; font-size:13px; user-select:all;">{{ created_token }}</code>
+  <section class="om-card" aria-label="Created token">
+    <div class="om-card-h">
+      <span class="om-st om-st-ok">Token created</span>
+      <span class="om-mono" style="font-size:12.5px;color:var(--ink-muted)">{{ created_token_meta.name|lower }}</span>
+      <span class="om-mark {% if created_token_meta.role == 'operator' %}om-l-feat{% else %}om-m-adv{% endif %}">{{ created_token_meta.role }}</span>
+    </div>
+    <div class="om-card-b" style="display:flex;flex-direction:column;gap:10px">
+      <div style="color:var(--ink)">Copy this token now. Act-CI stores only its SHA-256 hash and cannot show the value again.</div>
+      <div class="om-panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <code id="new-token-value" class="om-mono" style="font-size:13px;color:var(--ink);user-select:all;word-break:break-all;flex:1">{{ created_token }}</code>
+        <button type="button" class="om-btn om-btn-g om-btn-sm" id="copy-tok-btn" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('new-token-value').textContent).then(function(){ document.getElementById('copy-tok-btn').textContent='Copied'; })">Copy token</button>
       </div>
     </div>
+  </section>
   {% endif %}
 
-  <div class="card">
-    <h2>Create Bearer Token</h2>
-    <form method="post" action="/tokens" class="row">
+  <section class="om-card">
+    <div class="om-card-h">
+      <h2 class="om-card-t">Create bearer token</h2>
+    </div>
+    <form method="post" action="/tokens">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="field" style="flex:2;">
-        <label for="tok-name">Token Name</label>
-        <input id="tok-name" type="text" name="name" required placeholder="coding-agent-laptop">
-      </div>
-      <div class="field">
-        <label for="tok-role">Role</label>
-        <select id="tok-role" name="role" required>
-          <option value="operator">Operator — trigger/cancel runs, read all runs &amp; logs</option>
-          <option value="viewer">Viewer — read run status; read non-private logs only</option>
-        </select>
-      </div>
-      <div>
-        <button type="submit">Create Token</button>
+      <div class="om-card-b" style="display:flex;flex-direction:column;gap:16px">
+        <div class="om-field-stack">
+          <label for="tok-name" class="om-label">Token name</label>
+          <input id="tok-name" type="text" name="name" class="om-fld om-mono" required placeholder="claude-code-laptop">
+          <span class="om-hint">Lowercase agent or tool identifier recorded on every row in the activity log.</span>
+        </div>
+
+        <div class="om-field-stack">
+          <span class="om-label">Access role</span>
+          <div class="om-form-grid">
+            <label class="om-radio-card">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="radio" name="role" value="operator" checked>
+                <span class="om-role"><img src="/ui-assets/omakase/icons/role-implementer.svg" alt=""><span style="font-weight:500;color:var(--ink)">Operator</span></span>
+              </div>
+              <span class="om-hint">Trigger and cancel runs, attach overlays, and read logs for all runs including private runs.</span>
+            </label>
+            <label class="om-radio-card">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="radio" name="role" value="viewer">
+                <span class="om-role"><img src="/ui-assets/omakase/icons/role-reviewer.svg" alt=""><span style="font-weight:500;color:var(--ink)">Viewer</span></span>
+              </div>
+              <span class="om-hint">Read run status on all runs and read logs of standard non-private runs only.</span>
+            </label>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end">
+          <button type="submit" class="om-btn om-btn-p">Create token</button>
+        </div>
       </div>
     </form>
-  </div>
+  </section>
 
-  <div class="card" style="padding:0; overflow:hidden;">
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Role</th>
-          <th>Prefix</th>
-          <th>Created</th>
-          <th>Last Used</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in tokens %}
-        <tr>
-          <td><strong>{{ t.name }}</strong></td>
-          <td><span class="tag">{{ t.role }}</span></td>
-          <td class="mono">{{ t.token_prefix }}…</td>
-          <td class="mono muted">{{ t.created_at }}</td>
-          <td class="mono muted">{{ t.last_used_at or 'never' }}</td>
-          <td>
-            {% if t.revoked_at %}
-              <span class="status status-cancelled">revoked</span>
-            {% else %}
-              <span class="status status-passed">active</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if not t.revoked_at %}
-            <form method="post" action="/tokens/{{ t.id }}/revoke" style="margin:0;">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button type="submit" class="btn-danger btn-sm">Revoke</button>
-            </form>
-            {% else %}
-              <span class="muted mono">{{ t.revoked_at }}</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="7" class="muted" style="text-align:center; padding:28px;">
-            No bearer tokens created yet.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <section class="om-card" aria-label="Issued tokens" style="overflow:hidden">
+    <div class="om-card-h">
+      <h2 class="om-card-t">Issued tokens</h2>
+      <span class="om-hint" style="margin-left:auto">{{ tokens|length }} total</span>
+    </div>
+    {% if tokens %}
+    <div style="overflow-x:auto">
+      <table class="om-table">
+        <thead>
+          <tr>
+            <th>Token</th>
+            <th>Role</th>
+            <th>Prefix</th>
+            <th>Status</th>
+            <th>Last used</th>
+            <th>Created</th>
+            <th style="text-align:right">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tokens %}
+          <tr>
+            <td class="om-mono" style="font-weight:500;color:var(--ink)">{{ t.name }}</td>
+            <td>
+              {% if t.role == 'operator' %}
+                <span class="om-role"><img src="/ui-assets/omakase/icons/role-implementer.svg" alt="">operator</span>
+              {% else %}
+                <span class="om-role"><img src="/ui-assets/omakase/icons/role-reviewer.svg" alt="">viewer</span>
+              {% endif %}
+            </td>
+            <td class="om-mono" style="font-size:12.5px;color:var(--ink-subtle)">{{ t.token_prefix }}…</td>
+            <td>
+              {% if t.revoked_at %}
+                {{ status_glyph('revoked') }}
+              {% else %}
+                {{ status_glyph('active') }}
+              {% endif %}
+            </td>
+            <td class="om-mono" style="font-size:12px;color:var(--ink-muted);font-variant-numeric:tabular-nums">{{ t.last_used_at or 'Never' }}</td>
+            <td class="om-mono" style="font-size:12px;color:var(--ink-subtle);font-variant-numeric:tabular-nums">{{ t.created_at }}</td>
+            <td style="text-align:right">
+              {% if not t.revoked_at %}
+              <form method="post" action="/tokens/{{ t.id }}/revoke" style="margin:0;display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="om-btn om-btn-d om-btn-sm">Revoke token</button>
+              </form>
+              {% else %}
+                <span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">{{ t.revoked_at }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="padding:18px">
+      <div class="om-empty">No bearer tokens issued yet. Create an operator or viewer token above to connect agents and scripts.</div>
+    </div>
+    {% endif %}
+  </section>
 {% endblock %}

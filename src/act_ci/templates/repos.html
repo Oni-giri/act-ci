@@ -1,139 +1,203 @@
 {% extends "base.html" %}
 {% block title %}Repositories · Act-CI{% endblock %}
+
 {% block content %}
-  <h1>Repositories</h1>
+  <header class="om-page-h">
+    <div>
+      <h1 class="om-page-t">Repositories</h1>
+      <p class="om-hint" style="margin:4px 0 0">Clone targets, runner container images, timeouts and encrypted workflow secrets.</p>
+    </div>
+    <div style="flex:1"></div>
+    <div class="om-card" style="padding:7px 12px;display:inline-flex;align-items:center;gap:8px;font-size:12.5px">
+      <span class="om-st om-st-ok" aria-hidden="true"></span>
+      <span>Slot ready · <span class="om-mono">slot-0</span></span>
+    </div>
+  </header>
 
-  {% if flash %}
-    <div class="alert alert-info">{{ flash }}</div>
-  {% endif %}
   {% if error %}
-    <div class="alert alert-error">{{ error }}</div>
+  <div class="om-alert" role="alert">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="var(--text-danger)" stroke-width="1.6" aria-hidden="true" style="flex:none;margin-top:1px"><circle cx="8" cy="8" r="6"/><path d="M8 4.5v4M8 10.8v.4"/></svg>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <strong style="font-weight:600">{{ error }}</strong>
+      <span style="color:var(--ink-2)">Check the repository name, clone URL and secret lines below, then save again.</span>
+    </div>
+  </div>
   {% endif %}
 
-  <div class="card">
-    <h2>{% if edit_repo %}Edit Repository: {{ edit_repo.name }}{% else %}Add Repository{% endif %}</h2>
+  <section class="om-card">
+    <div class="om-card-h">
+      <h2 class="om-card-t">{% if edit_repo %}Edit repository · {{ edit_repo.name }}{% else %}Add repository{% endif %}</h2>
+      {% if edit_repo %}
+        <span class="om-mark om-l-feat">editing</span>
+      {% endif %}
+    </div>
     <form method="post" action="{% if edit_repo %}/repos/{{ edit_repo.id }}/edit{% else %}/repos{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="row" style="margin-bottom:12px;">
-        <div class="field">
-          <label for="repo-name">Name</label>
-          <input id="repo-name" type="text" name="name" required value="{{ edit_repo.name if edit_repo else '' }}" placeholder="my-service">
+      <div class="om-card-b" style="display:flex;flex-direction:column;gap:16px">
+        <div class="om-form-grid">
+          <div class="om-field-stack">
+            <label for="repo-name" class="om-label">Repository name</label>
+            <input id="repo-name" type="text" name="name" class="om-fld om-mono" required value="{{ edit_repo.name if edit_repo else '' }}" placeholder="my-service">
+            <span class="om-hint">Used by API callers and MCP agents when triggering runs.</span>
+          </div>
+          <div class="om-field-stack" style="grid-column:span 2">
+            <label for="repo-url" class="om-label">Git clone URL</label>
+            <input id="repo-url" type="text" name="git_url" class="om-fld om-mono" required value="{{ edit_repo.git_url if edit_repo else '' }}" placeholder="https://github.com/owner/repo.git">
+            <span class="om-hint">Cloned read-only into a fresh workspace per run, never pushed back.</span>
+          </div>
         </div>
-        <div class="field" style="flex:2;">
-          <label for="repo-url">Git URL (read-only clone target)</label>
-          <input id="repo-url" type="text" name="git_url" required value="{{ edit_repo.git_url if edit_repo else '' }}" placeholder="https://github.com/owner/repo.git">
-        </div>
-      </div>
 
-      <div class="row" style="margin-bottom:12px;">
-        <div class="field">
-          <label for="cred-type">Read-Only Clone Credential</label>
-          <select id="cred-type" name="credential_type">
-            <option value="none" {% if edit_repo and edit_repo.credential_type == 'none' %}selected{% endif %}>None (public repository)</option>
-            <option value="token" {% if edit_repo and edit_repo.credential_type == 'token' %}selected{% endif %}>HTTPS Read-Only Token / PAT</option>
-            <option value="deploy_key" {% if edit_repo and edit_repo.credential_type == 'deploy_key' %}selected{% endif %}>SSH Read-Only Deploy Key</option>
-          </select>
+        <div class="om-field-stack">
+          <span class="om-label">Read-only clone credential</span>
+          <div class="om-form-grid">
+            {% set cur_cred = edit_repo.credential_type if edit_repo else 'none' %}
+            <label class="om-radio-card">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="radio" name="credential_type" value="none" {% if cur_cred == 'none' %}checked{% endif %}>
+                <span style="font-weight:500;color:var(--ink)">Public repository</span>
+              </div>
+              <span class="om-hint">Clone anonymously without a token or SSH key.</span>
+            </label>
+            <label class="om-radio-card">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="radio" name="credential_type" value="token" {% if cur_cred == 'token' %}checked{% endif %}>
+                <span style="font-weight:500;color:var(--ink)">HTTPS access token</span>
+              </div>
+              <span class="om-hint">Fine-grained GitHub token with read-only contents permission.</span>
+            </label>
+            <label class="om-radio-card">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="radio" name="credential_type" value="deploy_key" {% if cur_cred == 'deploy_key' %}checked{% endif %}>
+                <span style="font-weight:500;color:var(--ink)">SSH deploy key</span>
+              </div>
+              <span class="om-hint">Read-only private key passed to git outside the workspace.</span>
+            </label>
+          </div>
         </div>
-        <div class="field" style="flex:2;">
-          <label for="cred-val">
-            Credential Secret
+
+        <div class="om-field-stack">
+          <label for="cred-val" class="om-label">
+            Credential secret
             {% if edit_repo and edit_repo.has_credential %}
-              (stored encrypted — leave blank to keep existing)
+              <span class="om-mark om-l-sec" style="margin-left:8px">encrypted on disk</span>
             {% endif %}
           </label>
-          <textarea id="cred-val" name="credential_value" style="min-height:42px;" placeholder="github_pat_... or -----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+          <textarea id="cred-val" name="credential_value" rows="2" class="om-fld om-mono" placeholder="{% if edit_repo and edit_repo.has_credential %}Leave blank to keep existing encrypted credential{% else %}Paste token or OpenSSH private key when needed{% endif %}"></textarea>
         </div>
-      </div>
 
-      <div class="row" style="margin-bottom:12px;">
-        <div class="field" style="flex:2;">
-          <label for="def-img">Default Runner Image</label>
-          <input id="def-img" type="text" name="default_image" required value="{{ edit_repo.default_image if edit_repo else default_image }}">
+        <div class="om-form-grid">
+          <div class="om-field-stack" style="grid-column:span 2">
+            <label for="def-img" class="om-label">Default runner container image</label>
+            <input id="def-img" type="text" name="default_image" class="om-fld om-mono" required value="{{ edit_repo.default_image if edit_repo else default_image }}">
+          </div>
+          <div class="om-field-stack">
+            <label for="timeout-sec" class="om-label">Run timeout (seconds)</label>
+            <input id="timeout-sec" type="number" name="timeout_seconds" min="1" max="86400" class="om-fld om-mono" required value="{{ edit_repo.timeout_seconds if edit_repo else default_timeout }}">
+          </div>
         </div>
-        <div class="field">
-          <label for="timeout-sec">Per-Run Timeout (seconds)</label>
-          <input id="timeout-sec" type="number" name="timeout_seconds" min="1" max="86400" required value="{{ edit_repo.timeout_seconds if edit_repo else default_timeout }}">
+
+        <div class="om-field-stack">
+          <label for="secrets-text" class="om-label">Workflow secrets</label>
+          <textarea id="secrets-text" name="secrets_text" rows="3" class="om-fld om-mono" placeholder="NPM_TOKEN=...\nTEST_API_KEY=..."></textarea>
+          <span class="om-hint">
+            One <span class="om-mono">KEY=VALUE</span> per line. Encrypted at rest, never returned by the API, and masked in run logs.
+            {% if edit_repo and edit_repo.secret_keys %}
+              Stored keys: <span class="om-mono">{{ edit_repo.secret_keys | join(', ') }}</span>.
+            {% endif %}
+          </span>
         </div>
-      </div>
 
-      <div class="field" style="margin-bottom:12px;">
-        <label for="secrets-text">
-          Workflow Secrets (optional, one <code>KEY=VALUE</code> per line; encrypted at rest and masked in logs)
-          {% if edit_repo and edit_repo.secret_keys %}
-            — Existing keys: <code>{{ edit_repo.secret_keys | join(', ') }}</code>
-          {% endif %}
-        </label>
-        <textarea id="secrets-text" name="secrets_text" placeholder="NPM_TOKEN=...\nTEST_API_KEY=..."></textarea>
-      </div>
-
-      {% if edit_repo and edit_repo.secret_keys %}
-      <div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">
-        <input id="clear-sec" type="checkbox" name="clear_secrets" value="1">
-        <label for="clear-sec" style="margin:0;">Replace existing secrets instead of merging new keys</label>
-      </div>
-      {% endif %}
-
-      <div style="display:flex; gap:10px;">
-        <button type="submit">{% if edit_repo %}Save Changes{% else %}Add Repository{% endif %}</button>
-        {% if edit_repo %}
-          <a href="/repos" class="btn btn-secondary">Cancel</a>
+        {% if edit_repo and edit_repo.secret_keys %}
+        <div class="om-panel" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span class="om-label">Replace existing secrets</span>
+            <span class="om-hint">Overwrite stored workflow secrets instead of merging new keys into the current set.</span>
+          </div>
+          <input id="clear-sec-input" type="hidden" name="clear_secrets" value="1" disabled>
+          <button type="button" role="switch" aria-checked="false" aria-label="Replace existing secrets" class="om-switch" data-om-switch="clear-sec-input"></button>
+        </div>
         {% endif %}
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px">
+          {% if edit_repo %}
+            <a href="/repos" class="om-btn om-btn-g">Discard edits</a>
+          {% endif %}
+          <button type="submit" class="om-btn om-btn-p">{% if edit_repo %}Save changes{% else %}Save repository{% endif %}</button>
+        </div>
       </div>
     </form>
-  </div>
+  </section>
 
-  <div class="card" style="padding:0; overflow:hidden;">
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Git URL</th>
-          <th>Auth</th>
-          <th>Runner Image</th>
-          <th>Timeout</th>
-          <th>Secrets</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in repos %}
-        <tr>
-          <td><strong>{{ r.name }}</strong></td>
-          <td class="mono">{{ r.git_url }}</td>
-          <td><span class="tag">{{ r.credential_type }}</span></td>
-          <td class="mono">{{ r.default_image }}</td>
-          <td class="mono">{{ r.timeout_seconds }}s</td>
-          <td>
-            {% if r.secret_keys %}
-              <span class="tag">{{ r.secret_keys | length }} key(s)</span>
-            {% else %}
-              <span class="muted">none</span>
-            {% endif %}
-          </td>
-          <td>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <form method="post" action="/runs/trigger" style="margin:0;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="repo" value="{{ r.name }}">
-                <input type="hidden" name="ref" value="HEAD">
-                <button type="submit" class="btn-sm">Run</button>
-              </form>
-              <a href="/repos?edit={{ r.id }}" class="btn btn-secondary btn-sm">Edit</a>
-              <form method="post" action="/repos/{{ r.id }}/delete" style="margin:0;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="btn-danger btn-sm">Delete</button>
-              </form>
-            </div>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="7" class="muted" style="text-align:center; padding:28px;">
-            No repositories configured yet.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <section class="om-card" aria-label="Configured repositories" style="overflow:hidden">
+    <div class="om-card-h">
+      <h2 class="om-card-t">Configured repositories</h2>
+      <span class="om-hint" style="margin-left:auto">{{ repos|length }} configured</span>
+    </div>
+    {% if repos %}
+    <div style="overflow-x:auto">
+      <table class="om-table">
+        <thead>
+          <tr>
+            <th>Repository</th>
+            <th>Clone URL</th>
+            <th>Credential</th>
+            <th>Runner image</th>
+            <th>Timeout</th>
+            <th>Secrets</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set proj_colors = ['var(--project-sky)', 'var(--project-pink)', 'var(--project-amber)'] %}
+          {% for r in repos %}
+          <tr>
+            <td>
+              <span class="om-proj" style="--p:{{ proj_colors[loop.index0 % 3] }};font-weight:500;color:var(--ink)">{{ r.name }}</span>
+            </td>
+            <td class="om-mono" style="font-size:12.5px;color:var(--ink-2)">{{ r.git_url }}</td>
+            <td>
+              {% if r.credential_type == 'none' %}
+                <span class="om-mark om-m-all">public</span>
+              {% else %}
+                <span class="om-mark om-l-sec">{{ r.credential_type|replace('_', ' ') }}</span>
+              {% endif %}
+            </td>
+            <td class="om-mono" style="font-size:12px;color:var(--ink-muted)">{{ r.default_image }}</td>
+            <td class="om-mono" style="font-size:12.5px;font-variant-numeric:tabular-nums">{{ r.timeout_seconds }} s</td>
+            <td style="font-variant-numeric:tabular-nums;color:var(--ink-2)">
+              {% if r.secret_keys %}
+                {{ r.secret_keys|length }} key(s)
+              {% else %}
+                <span style="color:var(--ink-subtle)">0 keys</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right">
+              <div style="display:inline-flex;gap:6px;align-items:center">
+                <form method="post" action="/runs/trigger" style="margin:0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="repo" value="{{ r.name }}">
+                  <input type="hidden" name="ref" value="HEAD">
+                  <button type="submit" class="om-btn om-btn-g om-btn-sm">Run HEAD</button>
+                </form>
+                <a href="/repos?edit={{ r.id }}" class="om-btn om-btn-g om-btn-sm">Edit</a>
+                <form method="post" action="/repos/{{ r.id }}/delete" style="margin:0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="om-btn om-btn-d om-btn-sm om-hold" data-om-hold-form title="Click or hold to remove repository">
+                    <span class="om-hold-fill" style="width:0%"></span>
+                    <span>Remove</span>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="padding:18px">
+      <div class="om-empty">No repositories configured yet. Fill in the form above to register your first Git repository.</div>
+    </div>
+    {% endif %}
+  </section>
 {% endblock %}

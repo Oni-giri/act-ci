@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from act_ci.config import DEFAULT_RUNNER_IMAGE, DEFAULT_TIMEOUT_SECONDS
@@ -23,7 +23,14 @@ from act_ci.security import CSRF_COOKIE_NAME, CsrfSigner
 from act_ci.service import CiService
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+PROJECT_PALETTE = (
+    "var(--project-sky)",
+    "var(--project-pink)",
+    "var(--project-amber)",
+)
 
 def _require_admin_ui(request: Request) -> None:
     """Reject any request carrying an Authorization bearer header on admin/UI routes."""
@@ -102,6 +109,49 @@ def _require_csrf(request: Request, csrf_token: str | None) -> None:
         raise ForbiddenError("Invalid or missing CSRF token")
 
 
+def _shell_counts_and_repos(svc: CiService) -> dict[str, Any]:
+    raw_repos = svc.db.list_repos()
+    all_runs = svc.db.list_runs(limit=500)
+    run_counts_by_repo: dict[str, int] = {}
+    status_counts: dict[str, int] = {s: 0 for s in VALID_RUN_STATUSES}
+    for r in all_runs:
+        rname = r["repo_name"]
+        run_counts_by_repo[rname] = run_counts_by_repo.get(rname, 0) + 1
+        st = r["status"]
+        if st in status_counts:
+            status_counts[st] += 1
+
+    sidebar_repos = []
+    for idx, repo in enumerate(raw_repos):
+        sidebar_repos.append(
+            {
+                "id": repo["id"],
+                "name": repo["name"],
+                "color": PROJECT_PALETTE[idx % len(PROJECT_PALETTE)],
+                "run_count": run_counts_by_repo.get(repo["name"], 0),
+            }
+        )
+
+    tokens = svc.db.list_tokens()
+    active_token_count = sum(1 for t in tokens if not t["revoked_at"])
+    recent_audits = svc.db.list_audit_logs(limit=200)
+    denied_audit_count = sum(
+        1
+        for a in recent_audits
+        if a["result"].startswith(("denied", "unauthorized"))
+    )
+
+    return {
+        "sidebar_repos": sidebar_repos,
+        "nav_runs_count": len(all_runs),
+        "nav_repos_count": len(raw_repos),
+        "nav_tokens_count": active_token_count,
+        "nav_denied_count": denied_audit_count,
+        "all_status_counts": status_counts,
+        "all_runs_total": len(all_runs),
+    }
+
+
 def _render_template(
     request: Request,
     template_name: str,
@@ -110,6 +160,7 @@ def _render_template(
     status_code: int = 200,
     **extra: Any,
 ) -> HTMLResponse:
+    svc: CiService = request.app.state.service
     signer: CsrfSigner = request.app.state.csrf
     existing_sid = request.cookies.get(CSRF_COOKIE_NAME)
     if CsrfSigner.is_valid_session_id(existing_sid):
@@ -124,6 +175,7 @@ def _render_template(
         "active_nav": active_nav,
         "csrf_token": signer.issue(session_id=session_id),
     }
+    ctx.update(_shell_counts_and_repos(svc))
     ctx.update(extra)
     resp = templates.TemplateResponse(request, template_name, ctx, status_code=status_code)
     if needs_cookie:
@@ -197,7 +249,21 @@ def _parse_dotenv_secrets(raw_text: str) -> dict[str, str]:
     return out
 
 
-# ---- Health Check (Admin/Internal, non-secret) ----
+# ---- Static Assets & Health Check (Admin/Internal, behind Umbrel login) ----
+
+
+@ui_router.get("/ui-assets/{asset_path:path}")
+async def ui_static_asset(asset_path: str, request: Request) -> Response:
+    _require_admin_ui(request)
+    static_root = STATIC_DIR.resolve()
+    candidate = (static_root / asset_path).resolve()
+    if (
+        candidate == static_root
+        or static_root not in candidate.parents
+        or not candidate.is_file()
+    ):
+        return Response(status_code=404)
+    return FileResponse(candidate)
 
 
 @ui_router.get("/healthz")
@@ -229,6 +295,35 @@ async def ui_runs_list(
     runs = svc.list_runs(
         ADMIN_PRINCIPAL, repo=clean_repo, status=clean_status, limit=100
     )
+    repo_scoped_runs = svc.list_runs(
+        ADMIN_PRINCIPAL, repo=clean_repo, status=None, limit=200
+    )
+    tab_counts: dict[str, int] = {s: 0 for s in VALID_RUN_STATUSES}
+    for r in repo_scoped_runs:
+        if r.status in tab_counts:
+            tab_counts[r.status] += 1
+    attention_runs = (
+        []
+        if clean_status
+        else [
+            r
+            for r in repo_scoped_runs
+            if r.status in ("running", "queued", "failed", "timed_out")
+        ][:4]
+    )
+
+    step_summaries: dict[str, dict[str, int]] = {}
+    for r in runs:
+        steps = svc.db.list_run_steps(r.id)
+        passed_n = sum(1 for s in steps if s["status"] == "passed")
+        failed_n = sum(1 for s in steps if s["status"] == "failed")
+        total_n = len(steps)
+        step_summaries[r.id] = {
+            "passed": passed_n,
+            "failed": failed_n,
+            "total": total_n,
+        }
+
     return _render_template(
         request,
         "runs.html",
@@ -238,6 +333,10 @@ async def ui_runs_list(
         selected_repo=clean_repo or "",
         selected_status=clean_status or "",
         statuses=VALID_RUN_STATUSES,
+        tab_counts=tab_counts,
+        tab_total=len(repo_scoped_runs),
+        attention_runs=attention_runs,
+        step_summaries=step_summaries,
         flash=flash,
     )
 
@@ -529,12 +628,22 @@ async def ui_activity_page(
     svc: CiService = request.app.state.service
     entries = svc.db.list_audit_logs(limit=limit, offset=offset)
     total = svc.db.count_audit_logs()
+    ok_count = sum(1 for e in entries if e["result"] == "ok" or e["result"].startswith("noop"))
+    blocked_count = sum(
+        1 for e in entries if e["result"].startswith(("denied", "unauthorized"))
+    )
+    api_count = sum(1 for e in entries if e["source"] == "api")
+    mcp_count = sum(1 for e in entries if e["source"] == "mcp")
     return _render_template(
         request,
         "activity.html",
         "activity",
         entries=entries,
         total=total,
+        ok_count=ok_count,
+        blocked_count=blocked_count,
+        api_count=api_count,
+        mcp_count=mcp_count,
         limit=limit,
         offset=offset,
     )

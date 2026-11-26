@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "act-ci"
-version = "0.1.1"
+version = "0.1.2"
 description = "Self-hosted GitHub Actions CI service powered by nektos/act for Umbrel"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,7 +36,7 @@ act-ci = "act_ci.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-act_ci = ["templates/*.html", "static/*"]
+act_ci = ["templates/*.html", "static/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

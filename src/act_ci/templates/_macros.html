@@ -1,0 +1,43 @@
+{# Shared Omakase UI macros for Act-CI #}
+{% macro status_glyph(status, show_label=True) -%}
+  {%- set glyph_map = {
+    'queued': ('om-st-spec', 'Queued'),
+    'running': ('om-st-prog', 'Running'),
+    'passed': ('om-st-ok', 'Passed'),
+    'failed': ('om-st-ret', 'Failed'),
+    'timed_out': ('om-st-review', 'Timed out'),
+    'cancelled': ('om-st-open', 'Cancelled'),
+    'skipped': ('om-st-open', 'Skipped'),
+    'active': ('om-st-ok', 'Active'),
+    'revoked': ('om-st-open', 'Revoked')
+  } -%}
+  {%- set pair = glyph_map.get(status, ('om-st-open', status|replace('_', ' ')|capitalize)) -%}
+  {%- if show_label -%}
+    <span class="om-st {{ pair[0] }}">{{ pair[1] }}</span>
+  {%- else -%}
+    <span class="om-st {{ pair[0] }}" aria-hidden="true"></span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro step_ratio_bar(passed, failed, total, width=84) -%}
+  {%- if total > 0 -%}
+    {%- set pass_pct = ((passed * 100) // total) -%}
+    {%- set fail_pct = ((failed * 100) // total) -%}
+    <span class="om-tline">
+      <span class="om-ratio" style="width:{{ width }}px" aria-hidden="true">
+        {%- if pass_pct > 0 -%}<span class="om-r-pass" style="width:{{ pass_pct }}%"></span>{%- endif -%}
+        {%- if fail_pct > 0 -%}<span class="om-r-fail" style="width:{{ fail_pct }}%"></span>{%- endif -%}
+      </span>
+      {%- if failed > 0 -%}
+        {{ passed }} passed, {{ failed }} failed
+      {%- else -%}
+        {{ passed }} of {{ total }} steps
+      {%- endif -%}
+    </span>
+  {%- else -%}
+    <span class="om-tline">
+      <span class="om-ratio" style="width:{{ width }}px" aria-hidden="true"></span>
+      <span style="color:var(--ink-subtle)">0 steps</span>
+    </span>
+  {%- endif -%}
+{%- endmacro %}

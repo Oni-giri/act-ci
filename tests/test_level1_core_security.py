@@ -641,6 +641,7 @@ def test_tokens_shown_once_hashed_at_rest_last_used_revocation_and_admin_unreach
         ("POST", "/tokens"),
         ("GET", "/activity"),
         ("GET", "/healthz"),
+        ("GET", "/ui-assets/omakase/css/omakase.css"),
     ]
     for method, path in admin_paths:
         for tok in (raw_token, viewer_raw):

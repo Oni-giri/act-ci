@@ -1,127 +1,265 @@
 {% extends "base.html" %}
-{% block title %}Runs · Act-CI{% endblock %}
-{% block content %}
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-    <h1 style="margin:0;">Workflow Runs</h1>
-    <a href="/repos" class="btn btn-secondary btn-sm">Manage Repos</a>
-  </div>
+{% from "_macros.html" import status_glyph, step_ratio_bar %}
+{% block title %}Workflow runs · Act-CI{% endblock %}
 
-  {% if flash %}
-    <div class="alert alert-info">{{ flash }}</div>
+{% block content %}
+  <header class="om-page-h">
+    <h1 class="om-page-t">Workflow runs</h1>
+    <div style="flex:1"></div>
+    <button type="button" class="om-btn om-btn-g" style="min-width:240px;justify-content:flex-start;color:var(--ink-subtle);font-weight:400" onclick="window.__omOpenPalette()">
+      <img src="/ui-assets/omakase/icons/search.svg" width="15" height="15" alt="">Search or jump to page…<kbd class="om-kbd" style="margin-left:auto">⌘K</kbd>
+    </button>
+    {% if repos %}
+      <button type="button" class="om-btn om-btn-p" onclick="window.__omOpenModal('om-trigger-modal')">Run workflow</button>
+    {% else %}
+      <a href="/repos" class="om-btn om-btn-p">Add repository</a>
+    {% endif %}
+  </header>
+
+  {% if not selected_status %}
+  <section aria-labelledby="needs-you" style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <h2 id="needs-you" class="om-section-t">Needs attention</h2>
+      <span class="om-hint">Active slot jobs and recent failures come here</span>
+    </div>
+
+    {% if attention_runs %}
+      <div class="om-grid">
+        {% for ar in attention_runs %}
+        <article class="om-card" style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:8px">
+            {{ status_glyph(ar.status) }}
+            {% if ar.private %}<span class="om-mark om-m-sealed">Private</span>{% endif %}
+            <span class="om-mono" style="margin-left:auto;font-size:12px;color:var(--ink-subtle)">{{ ar.id }}</span>
+          </div>
+          <a href="/runs/{{ ar.id }}" style="font-size:14.5px;font-weight:600;color:var(--ink);text-decoration:none">
+            {{ ar.repo }} <span class="om-mono" style="font-weight:400;font-size:12.5px;color:var(--ink-muted)">@ {{ ar.ref }}</span>
+          </a>
+          <div style="font-size:13px;color:var(--ink-muted)">
+            {% if ar.error_message %}
+              {{ ar.error_message }}
+            {% elif ar.status == 'running' %}
+              Running inside the isolated sidecar container.
+            {% else %}
+              Waiting in queue for the runner slot.
+            {% endif %}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <a class="om-btn om-btn-g om-btn-sm" href="/runs/{{ ar.id }}">Open run</a>
+            {% if ar.status in ('queued', 'running') %}
+              <form method="post" action="/runs/{{ ar.id }}/cancel" style="margin:0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="om-btn om-btn-d om-btn-sm">Stop run</button>
+              </form>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="om-empty">Nothing waiting on you. Queued jobs and failed runs appear here automatically.</div>
+    {% endif %}
+  </section>
   {% endif %}
 
-  <div class="card">
-    <form method="get" action="/runs" class="row">
-      <div class="field">
-        <label for="filter-repo">Repository</label>
-        <select id="filter-repo" name="repo">
-          <option value="">All repositories</option>
-          {% for r in repos %}
-            <option value="{{ r.name }}" {% if selected_repo == r.name %}selected{% endif %}>{{ r.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="filter-status">Status</label>
-        <select id="filter-status" name="status">
-          <option value="">All statuses</option>
-          {% for st in statuses %}
-            <option value="{{ st }}" {% if selected_status == st %}selected{% endif %}>{{ st }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <button type="submit">Filter</button>
-        {% if selected_repo or selected_status %}
-          <a href="/runs" class="btn btn-secondary">Clear</a>
-        {% endif %}
-      </div>
+  <section class="om-card" aria-label="Runs list" style="overflow:hidden">
+    <div class="om-tabs" role="tablist" aria-label="Filter runs by status">
+      {% set repo_qs = ('repo=' ~ (selected_repo|urlencode) ~ '&') if selected_repo else '' %}
+      <a role="tab" aria-selected="{{ 'true' if not selected_status else 'false' }}" href="/runs{% if selected_repo %}?repo={{ selected_repo|urlencode }}{% endif %}" class="om-stab {% if not selected_status %}om-stab-on{% endif %}" style="text-decoration:none">
+        All <span class="om-stab-n">{{ tab_total }}</span>
+      </a>
+      <a role="tab" aria-selected="{{ 'true' if selected_status == 'running' else 'false' }}" href="/runs?{{ repo_qs }}status=running" class="om-stab {% if selected_status == 'running' %}om-stab-on{% endif %}" style="text-decoration:none">
+        <span class="om-st om-st-prog" aria-hidden="true"></span>Running <span class="om-stab-n">{{ tab_counts.get('running', 0) }}</span>
+      </a>
+      <a role="tab" aria-selected="{{ 'true' if selected_status == 'queued' else 'false' }}" href="/runs?{{ repo_qs }}status=queued" class="om-stab {% if selected_status == 'queued' %}om-stab-on{% endif %}" style="text-decoration:none">
+        <span class="om-st om-st-spec" aria-hidden="true"></span>Queued <span class="om-stab-n">{{ tab_counts.get('queued', 0) }}</span>
+      </a>
+      <a role="tab" aria-selected="{{ 'true' if selected_status == 'passed' else 'false' }}" href="/runs?{{ repo_qs }}status=passed" class="om-stab {% if selected_status == 'passed' %}om-stab-on{% endif %}" style="text-decoration:none">
+        <span class="om-st om-st-ok" aria-hidden="true"></span>Passed <span class="om-stab-n">{{ tab_counts.get('passed', 0) }}</span>
+      </a>
+      <a role="tab" aria-selected="{{ 'true' if selected_status == 'failed' else 'false' }}" href="/runs?{{ repo_qs }}status=failed" class="om-stab {% if selected_status == 'failed' %}om-stab-on{% endif %}" style="text-decoration:none">
+        <span class="om-st om-st-ret" aria-hidden="true"></span>Failed <span class="om-stab-n">{{ tab_counts.get('failed', 0) }}</span>
+      </a>
+      <a role="tab" aria-selected="{{ 'true' if selected_status == 'timed_out' else 'false' }}" href="/runs?{{ repo_qs }}status=timed_out" class="om-stab {% if selected_status == 'timed_out' %}om-stab-on{% endif %}" style="text-decoration:none">
+        <span class="om-st om-st-review" aria-hidden="true"></span>Timed out <span class="om-stab-n">{{ tab_counts.get('timed_out', 0) }}</span>
+      </a>
+      <a role="tab" aria-selected="{{ 'true' if selected_status == 'cancelled' else 'false' }}" href="/runs?{{ repo_qs }}status=cancelled" class="om-stab {% if selected_status == 'cancelled' %}om-stab-on{% endif %}" style="text-decoration:none">
+        <span class="om-st om-st-open" aria-hidden="true"></span>Cancelled <span class="om-stab-n">{{ tab_counts.get('cancelled', 0) }}</span>
+      </a>
+    </div>
+
+    <form method="get" action="/runs" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line-soft)">
+      <label for="filter-repo" class="om-sr">Filter by repository</label>
+      <select id="filter-repo" name="repo" class="om-fld" style="width:auto;min-width:180px;padding:5px 10px;font-size:13px" onchange="this.form.submit()">
+        <option value="">All repositories</option>
+        {% for r in repos %}
+          <option value="{{ r.name }}" {% if selected_repo == r.name %}selected{% endif %}>{{ r.name }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="filter-status" class="om-sr">Filter by status</label>
+      <select id="filter-status" name="status" class="om-fld" style="width:auto;min-width:150px;padding:5px 10px;font-size:13px" onchange="this.form.submit()">
+        <option value="">All statuses</option>
+        {% for st in statuses %}
+          <option value="{{ st }}" {% if selected_status == st %}selected{% endif %}>{{ st|replace('_', ' ')|capitalize }}</option>
+        {% endfor %}
+      </select>
+
+      <button type="submit" class="om-btn om-btn-g om-btn-sm">
+        <img src="/ui-assets/omakase/icons/filter.svg" width="14" height="14" alt="">Apply filter
+      </button>
+
+      {% if selected_repo %}
+        <span class="om-cond">
+          <span class="om-cond-k">Repository</span>
+          <span class="om-cond-op">is</span>
+          <span>{{ selected_repo }}</span>
+          <a class="om-cond-x" href="/runs{% if selected_status %}?status={{ selected_status|urlencode }}{% endif %}" aria-label="Clear repository filter" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none">×</a>
+        </span>
+      {% endif %}
+
+      {% if selected_status %}
+        <span class="om-cond">
+          <span class="om-cond-k">Status</span>
+          <span class="om-cond-op">is</span>
+          <span>{{ selected_status }}</span>
+          <a class="om-cond-x" href="/runs{% if selected_repo %}?repo={{ selected_repo|urlencode }}{% endif %}" aria-label="Clear status filter" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none">×</a>
+        </span>
+      {% endif %}
+
+      {% if selected_repo or selected_status %}
+        <a href="/runs" class="om-btn om-btn-g om-btn-sm om-btn-dashed" style="margin-left:auto">Reset filters</a>
+      {% endif %}
     </form>
-  </div>
+
+    {% if runs %}
+    <div style="overflow-x:auto">
+      <table class="om-table">
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Status</th>
+            <th>Steps</th>
+            <th>Ref</th>
+            <th>Duration</th>
+            <th>Triggered by</th>
+            <th>Started</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+          {% set ss = step_summaries.get(run.id, {'passed': 0, 'failed': 0, 'total': 0}) %}
+          <tr onclick="window.location.href='/runs/{{ run.id }}'" style="cursor:pointer">
+            <td>
+              <div style="display:inline-flex;align-items:center;gap:10px">
+                <span class="om-pri {% if run.status in ('failed', 'timed_out') %}om-pri-urgent{% elif run.status == 'running' %}om-pri-high{% else %}om-pri-low{% endif %}" role="img" aria-label="{{ run.status }} run"></span>
+                <a href="/runs/{{ run.id }}" class="om-mono" style="color:var(--ink-muted);text-decoration:none;font-size:12.5px" onclick="event.stopPropagation()">{{ run.id }}</a>
+                <span style="font-weight:500;color:var(--ink)">{{ run.repo }}</span>
+                {% if run.private %}<span class="om-mark om-m-sealed">Private</span>{% endif %}
+                {% if run.has_overlay %}<span class="om-mark om-l-feat">overlay</span>{% endif %}
+              </div>
+            </td>
+            <td>{{ status_glyph(run.status) }}</td>
+            <td>{{ step_ratio_bar(ss.passed, ss.failed, ss.total) }}</td>
+            <td class="om-mono" style="font-size:12.5px;color:var(--ink-2)">
+              {{ run.ref }}{% if run.commit_sha %} <span style="color:var(--ink-subtle)">({{ run.commit_sha[:8] }})</span>{% endif %}
+            </td>
+            <td class="om-mono" style="font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums">
+              {% if run.duration_seconds is not none %}
+                {{ "%.1f s"|format(run.duration_seconds) }}
+              {% elif run.status == 'running' %}
+                Running…
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="om-mono" style="font-size:12.5px;color:var(--ink-muted)">{{ (run.triggered_by or 'admin-ui')|lower }}</td>
+            <td style="font-size:12.5px;color:var(--ink-subtle);font-variant-numeric:tabular-nums">{{ run.started_at or run.created_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div style="padding:18px">
+        <div class="om-empty">
+          {% if repos %}
+            No workflow runs match the current filter. Trigger a run to execute workflows in the sidecar container.
+          {% else %}
+            No repositories are configured yet. Add a repository on the Repositories page to start running workflows.
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:10px 14px;border-top:1px solid var(--line-soft);background:var(--surface-sunken);font-size:12.5px;color:var(--ink-muted)">
+      <span><kbd class="om-kbd">/</kbd> search</span>
+      <span><kbd class="om-kbd">⌘K</kbd> command palette</span>
+      {% if repos %}<span><kbd class="om-kbd">r</kbd> run workflow</span>{% endif %}
+    </div>
+  </section>
 
   {% if repos %}
-  <div class="card">
-    <h2>Trigger Run</h2>
-    <form method="post" action="/runs/trigger" class="row">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="field">
-        <label for="trig-repo">Repository</label>
-        <select id="trig-repo" name="repo" required>
-          {% for r in repos %}
-            <option value="{{ r.name }}" {% if selected_repo == r.name %}selected{% endif %}>{{ r.name }}</option>
-          {% endfor %}
-        </select>
+  <div id="om-trigger-modal" data-om-modal class="om-overlay" style="display:none" onclick="window.__omCloseModal('om-trigger-modal')">
+    <div class="om-modal" role="dialog" aria-modal="true" aria-label="Run workflow" onclick="event.stopPropagation()">
+      <div class="om-modal-h">
+        <h2 style="margin:0;font-size:16px;font-weight:600">Run workflow</h2>
+        <button type="button" aria-label="Close" onclick="window.__omCloseModal('om-trigger-modal')" style="margin-left:auto;border:0;background:transparent;width:36px;height:36px;border-radius:var(--radius-md);cursor:pointer;color:var(--ink-muted);font-size:18px">×</button>
       </div>
-      <div class="field">
-        <label for="trig-ref">Ref / Commit SHA</label>
-        <input id="trig-ref" type="text" name="ref" value="HEAD" required>
-      </div>
-      <div class="field">
-        <label for="trig-wf">Workflow Path (optional)</label>
-        <input id="trig-wf" type="text" name="workflow" placeholder=".github/workflows/ci.yml">
-      </div>
-      <div class="field" style="max-width:160px;">
-        <label for="trig-ev">Event (optional)</label>
-        <input id="trig-ev" type="text" name="event" placeholder="push">
-      </div>
-      <div style="display:flex; align-items:center; gap:6px; padding-bottom:8px;">
-        <input id="trig-priv" type="checkbox" name="private" value="1">
-        <label for="trig-priv" style="margin:0;">Private</label>
-      </div>
-      <div>
-        <button type="submit">Run Workflow</button>
-      </div>
-    </form>
+      <form method="post" action="/runs/trigger">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="om-modal-b">
+          <div class="om-field-stack">
+            <label for="trig-repo" class="om-label">Repository</label>
+            <select id="trig-repo" name="repo" class="om-fld" required>
+              {% for r in repos %}
+                <option value="{{ r.name }}" {% if selected_repo == r.name %}selected{% endif %}>{{ r.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="om-form-grid">
+            <div class="om-field-stack">
+              <label for="trig-ref" class="om-label">Branch, tag or commit SHA</label>
+              <input id="trig-ref" type="text" name="ref" class="om-fld om-mono" value="HEAD" required>
+            </div>
+            <div class="om-field-stack">
+              <label for="trig-ev" class="om-label">Event name</label>
+              <input id="trig-ev" type="text" name="event" class="om-fld om-mono" placeholder="push">
+            </div>
+          </div>
+          <div class="om-field-stack">
+            <label for="trig-wf" class="om-label">Workflow path</label>
+            <input id="trig-wf" type="text" name="workflow" class="om-fld om-mono" placeholder=".github/workflows/ci.yml">
+            <span class="om-hint">Leave blank to run the repository's default workflows unchanged.</span>
+          </div>
+          <div class="om-panel" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span class="om-label">Seal logs from viewer tokens</span>
+              <span class="om-hint">Viewer tokens still see run status, while logs stay with operators and you.</span>
+            </div>
+            <input id="trig-priv-input" type="hidden" name="private" value="1" disabled>
+            <button type="button" role="switch" aria-checked="false" aria-label="Seal logs from viewer tokens" class="om-switch" data-om-switch="trig-priv-input"></button>
+          </div>
+        </div>
+        <div class="om-modal-f">
+          <button type="button" class="om-btn om-btn-g" onclick="window.__omCloseModal('om-trigger-modal')">Cancel</button>
+          <button type="submit" class="om-btn om-btn-p">Queue run</button>
+        </div>
+      </form>
+    </div>
   </div>
   {% endif %}
+{% endblock %}
 
-  <div class="card" style="padding:0; overflow:hidden;">
-    <table>
-      <thead>
-        <tr>
-          <th>Run</th>
-          <th>Status</th>
-          <th>Repo</th>
-          <th>Ref / Commit</th>
-          <th>Duration</th>
-          <th>Started / Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for run in runs %}
-        <tr>
-          <td>
-            <a href="/runs/{{ run.id }}" class="mono">{{ run.id }}</a>
-            {% if run.private %}<span class="tag">private</span>{% endif %}
-            {% if run.has_overlay %}<span class="tag">overlay</span>{% endif %}
-          </td>
-          <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
-          <td><strong>{{ run.repo }}</strong></td>
-          <td class="mono">
-            {{ run.ref }}
-            {% if run.commit_sha %}
-              <span class="muted">({{ run.commit_sha[:8] }})</span>
-            {% endif %}
-          </td>
-          <td class="mono">
-            {% if run.duration_seconds is not none %}
-              {{ "%.1fs"|format(run.duration_seconds) }}
-            {% elif run.status == 'running' %}
-              running…
-            {% else %}
-              —
-            {% endif %}
-          </td>
-          <td class="mono muted">{{ run.started_at or run.created_at }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="6" class="muted" style="text-align:center; padding:28px;">
-            No runs recorded yet. {% if not repos %}Add a repository on the <a href="/repos">Repos</a> page to get started.{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+{% block scripts %}
+{% if repos %}
+<script>
+  window.addEventListener("keydown", function (e) {
+    if (e.key === "r" && !e.metaKey && !e.ctrlKey && !["INPUT", "TEXTAREA", "SELECT"].includes((document.activeElement || {}).tagName)) {
+      e.preventDefault();
+      window.__omOpenModal("om-trigger-modal");
+    }
+  });
+</script>
+{% endif %}
 {% endblock %}

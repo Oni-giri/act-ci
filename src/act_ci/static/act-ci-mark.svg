@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <!-- Deep obsidian slate background -->
+    <linearGradient id="bg" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#171E2E"/>
+      <stop offset="55%" stop-color="#0F1420"/>
+      <stop offset="100%" stop-color="#090C14"/>
+    </linearGradient>
+
+    <!-- Subtle atmospheric top-left glow -->
+    <radialGradient id="glowBlue" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(156 144) rotate(42) scale(290)">
+      <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subtle emerald glow around the passed node -->
+    <radialGradient id="glowGreen" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(364 176) rotate(90) scale(165)">
+      <stop offset="0%" stop-color="#10B981" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Inner rim highlight -->
+    <linearGradient id="rim" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA" stop-opacity="0.38"/>
+      <stop offset="50%" stop-color="#334155" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0.32"/>
+    </linearGradient>
+
+    <!-- Isolated sidecar container frame -->
+    <linearGradient id="podSurface" x1="88" y1="88" x2="424" y2="424" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E293B" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0.88"/>
+    </linearGradient>
+
+    <linearGradient id="podStroke" x1="88" y1="88" x2="424" y2="424" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#38BDF8" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0.50"/>
+    </linearGradient>
+
+    <!-- Electric blue runner chevron -->
+    <linearGradient id="chevronGrad" x1="136" y1="168" x2="268" y2="344" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#93C5FD"/>
+      <stop offset="45%" stop-color="#4F8CFF"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+
+    <!-- Pipeline connector gradient (blue -> cyan -> emerald) -->
+    <linearGradient id="pipeGrad" x1="256" y1="340" x2="364" y2="216" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4F8CFF"/>
+      <stop offset="52%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+
+    <!-- Passed CI badge -->
+    <linearGradient id="passGrad" x1="316" y1="128" x2="412" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed base (cleanly masked by UmbrelOS squircle or standalone rounded icon) -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#glowBlue)"/>
+  <rect width="512" height="512" rx="112" fill="url(#glowGreen)"/>
+  <rect x="3" y="3" width="506" height="506" rx="109" stroke="url(#rim)" stroke-width="6"/>
+
+  <!-- Isolated DinD container boundary -->
+  <rect x="82" y="82" width="348" height="348" rx="76" fill="url(#podSurface)" stroke="url(#podStroke)" stroke-width="4"/>
+
+  <!-- Container header status dots (subtle terminal / container chrome) -->
+  <circle cx="132" cy="126" r="7" fill="#4F8CFF" fill-opacity="0.85"/>
+  <circle cx="156" cy="126" r="7" fill="#38BDF8" fill-opacity="0.55"/>
+  <circle cx="180" cy="126" r="7" fill="#34D399" fill-opacity="0.55"/>
+  <line x1="206" y1="126" x2="274" y2="126" stroke="#334155" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Secondary background workflow branch track (depth accent) -->
+  <path d="M160 340 H252" stroke="#1E293B" stroke-width="26" stroke-linecap="round"/>
+
+  <!-- Workflow pipeline arc rising from runner prompt into passed CI node -->
+  <path d="M254 340 H292 C331.765 340 364 307.765 364 268 V224" stroke="url(#pipeGrad)" stroke-width="26" stroke-linecap="round"/>
+
+  <!-- Commit / stage origin node on pipeline -->
+  <circle cx="254" cy="340" r="15" fill="#0F172A" stroke="#60A5FA" stroke-width="9"/>
+
+  <!-- Bold `act` execution chevron (`>`) -->
+  <path d="M142 184 L234 262 L142 340" stroke="url(#chevronGrad)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Passed CI status badge (outer halo + emerald disc + crisp check) -->
+  <circle cx="364" cy="176" r="56" fill="#10B981" fill-opacity="0.16"/>
+  <circle cx="364" cy="176" r="44" fill="url(#passGrad)"/>
+  <circle cx="364" cy="176" r="44" stroke="#A7F3D0" stroke-opacity="0.45" stroke-width="3"/>
+  <path d="M343 177 L357 191 L386 161" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

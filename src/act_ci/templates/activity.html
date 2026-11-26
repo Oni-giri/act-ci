@@ -1,53 +1,162 @@
 {% extends "base.html" %}
-{% block title %}Activity Audit Log · Act-CI{% endblock %}
+{% block title %}Activity log · Act-CI{% endblock %}
+
 {% block content %}
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-    <h1 style="margin:0;">Append-Only Activity Log</h1>
-    <span class="muted">{{ total }} total audited API &amp; MCP call(s)</span>
+  <header class="om-page-h">
+    <div>
+      <h1 class="om-page-t">Activity log</h1>
+      <p class="om-hint" style="margin:4px 0 0">Append-only audit trail of every REST API and MCP request, including reads and blocked attempts.</p>
+    </div>
+    <div style="flex:1"></div>
+    <div class="om-seg-wrap" role="radiogroup" aria-label="Activity view">
+      <button type="button" role="radio" aria-checked="true" class="om-seg om-seg-on" id="seg-table-btn" onclick="window.__setActView('table')">Audit table</button>
+      <button type="button" role="radio" aria-checked="false" class="om-seg" id="seg-feed-btn" onclick="window.__setActView('feed')">Event feed</button>
+    </div>
+  </header>
+
+  {% set shown_total = entries|length %}
+  <div class="om-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+    <div class="om-stat">
+      <span class="om-stat-k">Recorded events</span>
+      <span class="om-stat-v">{{ total }}</span>
+      <span class="om-stat-d">Protected by SQLite append-only triggers.</span>
+    </div>
+    <div class="om-stat">
+      <span class="om-stat-k">Outcomes in view</span>
+      <span class="om-stat-v">{{ ok_count }} <span style="font-size:15px;font-weight:400;color:var(--ink-subtle)">allowed</span></span>
+      <span class="om-tline">
+        <span class="om-ratio" style="width:120px" aria-hidden="true">
+          {% if shown_total > 0 and ok_count > 0 %}<span class="om-r-pass" style="width:{{ (ok_count * 100) // shown_total }}%"></span>{% endif %}
+          {% if shown_total > 0 and blocked_count > 0 %}<span class="om-r-fail" style="width:{{ (blocked_count * 100) // shown_total }}%"></span>{% endif %}
+        </span>
+        <span>{{ blocked_count }} blocked</span>
+      </span>
+    </div>
+    <div class="om-stat">
+      <span class="om-stat-k">Surfaces in view</span>
+      <span class="om-stat-v">{{ api_count + mcp_count }}</span>
+      <span class="om-stat-d">{{ api_count }} REST API · {{ mcp_count }} MCP requests.</span>
+    </div>
   </div>
 
-  <div class="card" style="padding:0; overflow:hidden;">
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Time (UTC)</th>
-          <th>Surface</th>
-          <th>Token</th>
-          <th>Role</th>
-          <th>Action</th>
-          <th>Repo</th>
-          <th>Run</th>
-          <th>Result</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in entries %}
-        <tr>
-          <td class="mono muted">#{{ row.id }}</td>
-          <td class="mono muted">{{ row.created_at }}</td>
-          <td><span class="tag">{{ row.source }}</span></td>
-          <td class="mono">{{ row.token_name }}</td>
-          <td>{% if row.role %}<span class="tag">{{ row.role }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-          <td class="mono">{{ row.action }}</td>
-          <td class="mono">{{ row.repo_name or '—' }}</td>
-          <td class="mono">
-            {% if row.run_id %}
-              <a href="/runs/{{ row.run_id }}">{{ row.run_id }}</a>
-            {% else %}
-              —
-            {% endif %}
-          </td>
-          <td class="mono">{{ row.result }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="9" class="muted" style="text-align:center; padding:28px;">
-            No API or MCP calls logged yet.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div id="act-view-table">
+    <section class="om-card" aria-label="Audit table" style="overflow:hidden">
+      {% if entries %}
+      <div style="overflow-x:auto">
+        <table class="om-table">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Surface</th>
+              <th>Token</th>
+              <th>Role</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Outcome</th>
+              <th>Time (UTC)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in entries %}
+            {% set is_blocked = row.result.startswith('denied') or row.result.startswith('unauthorized') %}
+            {% set is_ok = row.result == 'ok' or row.result.startswith('noop') %}
+            <tr>
+              <td class="om-mono" style="font-size:12px;color:var(--ink-subtle)">#{{ row.id }}</td>
+              <td>
+                <span class="om-mark {% if row.source == 'mcp' %}om-l-feat{% else %}om-m-all{% endif %}">{{ row.source }}</span>
+              </td>
+              <td class="om-mono" style="font-size:12.5px;color:var(--ink)">{{ row.token_name }}</td>
+              <td>
+                {% if row.role == 'operator' %}
+                  <span class="om-role"><img src="/ui-assets/omakase/icons/role-implementer.svg" alt="">operator</span>
+                {% elif row.role == 'viewer' %}
+                  <span class="om-role"><img src="/ui-assets/omakase/icons/role-reviewer.svg" alt="">viewer</span>
+                {% else %}
+                  <span style="color:var(--ink-subtle)">—</span>
+                {% endif %}
+              </td>
+              <td class="om-mono" style="font-size:12.5px;color:var(--ink-2)">{{ row.action }}</td>
+              <td class="om-mono" style="font-size:12.5px">
+                {% if row.run_id %}
+                  <a href="/runs/{{ row.run_id }}" class="om-link">{{ row.run_id }}</a>
+                {% elif row.repo_name %}
+                  {{ row.repo_name }}
+                {% else %}
+                  <span style="color:var(--ink-subtle)">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if is_ok %}
+                  <span class="om-st om-st-ok"><span class="om-mono" style="font-size:12px;font-weight:400">{{ row.result }}</span></span>
+                {% elif is_blocked %}
+                  <span class="om-st om-st-ret"><span class="om-mono" style="font-size:12px;font-weight:400">{{ row.result }}</span></span>
+                {% else %}
+                  <span class="om-st om-st-review"><span class="om-mono" style="font-size:12px;font-weight:400">{{ row.result }}</span></span>
+                {% endif %}
+              </td>
+              <td class="om-mono" style="font-size:12px;color:var(--ink-subtle);font-variant-numeric:tabular-nums">{{ row.created_at }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="padding:18px">
+        <div class="om-empty">No API or MCP calls have been recorded yet.</div>
+      </div>
+      {% endif %}
+    </section>
   </div>
+
+  <div id="act-view-feed" style="display:none">
+    <section class="om-card" aria-label="Activity feed" style="overflow:hidden">
+      {% if entries %}
+      <ul style="list-style:none;margin:0;padding:4px 0">
+        {% for row in entries %}
+        {% set is_blocked = row.result.startswith('denied') or row.result.startswith('unauthorized') %}
+        {% set is_ok = row.result == 'ok' or row.result.startswith('noop') %}
+        <li class="om-act">
+          {% if is_ok %}
+            <span class="om-st om-st-ok" aria-hidden="true"></span>
+          {% elif is_blocked %}
+            <span class="om-st om-st-ret" aria-hidden="true"></span>
+          {% else %}
+            <span class="om-st om-st-review" aria-hidden="true"></span>
+          {% endif %}
+          <span style="flex:1;min-width:0">
+            <span class="om-mono">{{ row.token_name }}</span> called <span class="om-mono">{{ row.action }}</span> over <span class="om-mono">{{ row.source }}</span> · <span class="om-mono" style="color:var(--ink-muted)">{{ row.result }}</span>
+          </span>
+          <span class="om-mono" style="font-size:12px;color:var(--ink-muted)">{{ row.run_id or row.repo_name or ('#' ~ row.id) }}</span>
+          <span class="om-mono" style="font-size:12px;color:var(--ink-subtle);min-width:140px;text-align:right">{{ row.created_at }}</span>
+          {% if is_blocked %}
+            <span class="om-unread" aria-label="Blocked call"></span>
+          {% else %}
+            <span style="width:7px"></span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div style="padding:18px">
+        <div class="om-empty">No API or MCP calls have been recorded yet.</div>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.__setActView = function (mode) {
+    const isTable = mode === "table";
+    document.getElementById("act-view-table").style.display = isTable ? "block" : "none";
+    document.getElementById("act-view-feed").style.display = isTable ? "none" : "block";
+    const btnT = document.getElementById("seg-table-btn");
+    const btnF = document.getElementById("seg-feed-btn");
+    btnT.classList.toggle("om-seg-on", isTable);
+    btnT.setAttribute("aria-checked", isTable ? "true" : "false");
+    btnF.classList.toggle("om-seg-on", !isTable);
+    btnF.setAttribute("aria-checked", !isTable ? "true" : "false");
+  };
+</script>
 {% endblock %}
