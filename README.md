@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.svg" width="120" height="120" alt="Act-CI Logo">
+</p>
+
 # Act-CI
 
 Self-hosted GitHub Actions CI service powered by [`nektos/act`](https://github.com/nektos/act), packaged as a one-click [umbrelOS](https://umbrel.com/) app.
