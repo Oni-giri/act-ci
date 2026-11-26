@@ -858,8 +858,17 @@ class RunnerWorker:
             pending_chunks: list[str] = []
             last_flush = loop.time()
 
+            flush_timer: asyncio.TimerHandle | None = None
+
+            def _cancel_flush_timer() -> None:
+                nonlocal flush_timer
+                if flush_timer is not None:
+                    flush_timer.cancel()
+                    flush_timer = None
+
             def _flush_pending() -> None:
                 nonlocal pending_key, pending_meta, pending_chunks, last_flush
+                _cancel_flush_timer()
                 if pending_key is None or not pending_chunks:
                     pending_key = None
                     pending_chunks = []
@@ -880,15 +889,14 @@ class RunnerWorker:
                 pending_chunks = []
                 last_flush = loop.time()
 
+            def _schedule_flush() -> None:
+                nonlocal flush_timer
+                if flush_timer is None:
+                    flush_timer = loop.call_later(0.1, _flush_pending)
+
             try:
                 while True:
-                    try:
-                        raw_line = await asyncio.wait_for(
-                            proc.stdout.readline(), timeout=0.1
-                        )
-                    except asyncio.TimeoutError:
-                        _flush_pending()
-                        continue
+                    raw_line = await proc.stdout.readline()
                     if not raw_line:
                         break
                     decoded = raw_line.decode("utf-8", errors="replace")
@@ -902,6 +910,7 @@ class RunnerWorker:
                             key = (mapped["job_id"], mapped["step_id"], mapped["stage"])
                             if mapped["status"] is not None:
                                 if pending_key == key and pending_chunks:
+                                    _cancel_flush_timer()
                                     text_m = "".join(pending_chunks) + text_m
                                     pending_key = None
                                     pending_chunks = []
@@ -942,6 +951,8 @@ class RunnerWorker:
                                     or (loop.time() - last_flush) >= 0.1
                                 ):
                                     _flush_pending()
+                                else:
+                                    _schedule_flush()
                     else:
                         clean_line = masker.mask(decoded)
                         if clean_line.strip():
@@ -968,7 +979,10 @@ class RunnerWorker:
                                 or (loop.time() - last_flush) >= 0.1
                             ):
                                 _flush_pending()
+                            else:
+                                _schedule_flush()
             finally:
+                _cancel_flush_timer()
                 _flush_pending()
 
         reader_task = asyncio.create_task(_stream_stdout())

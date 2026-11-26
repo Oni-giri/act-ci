@@ -366,3 +366,65 @@ def test_replacement_workflow_keeps_git_status_clean_via_info_exclude(
         text=True,
     ).stdout.strip()
     assert porcelain == ""
+
+
+@pytest.mark.asyncio
+async def test_stream_stdout_preserves_lines_across_slow_pauses(
+    tmp_path: Path,
+) -> None:
+    """Regression test: partial/paused stdout lines >100ms must not be dropped by readline cancellation."""
+    import stat as stat_mod
+
+    repo_dir = tmp_path / "slow-repo"
+    init_local_git_fixture(repo_dir)
+    stub_act = tmp_path / "slow_act.py"
+    stub_act.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys, time\n"
+        "sys.stdout.write(json.dumps({'jobID': 'j1', 'job': 'J', 'stepID': 's1', 'step': 'S', 'rawOutput': True, 'msg': 'FIRST_LINE'}) + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(0.25)\n"
+        "sys.stdout.write('{\"jobID\": \"j1\", \"job\": \"J\", \"stepID\": \"s1\", \"step\": \"S\", \"rawOutput\": true, ')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(0.25)\n"
+        "sys.stdout.write('\"msg\": \"SPLIT_ACROSS_PAUSE\"}\\n')\n"
+        "sys.stdout.write(json.dumps({'jobID': 'j1', 'job': 'J', 'stepID': 's1', 'step': 'S', 'executionResult': 'success', 'msg': 'ok'}) + '\\n')\n"
+        "sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    stub_act.chmod(stub_act.stat().st_mode | stat_mod.S_IXUSR)
+
+    cfg = Settings(
+        data_dir=tmp_path / "data",
+        host="127.0.0.1",
+        port=8080,
+        docker_host="unix:///nonexistent/dind.sock",
+        act_binary=str(stub_act),
+        git_binary="git",
+        docker_binary="nonexistent-docker-bin",
+        master_key_env="0123456789abcdef0123456789abcdef",
+        csrf_secret_env="level2-real-docker-csrf-secret-0123456789abcdef",
+        allow_local_repos=True,
+        prune_interval_seconds=0,
+        prune_until="168h",
+        enable_worker=True,
+        allow_loopback_callbacks=True,
+    )
+    app = create_app(cfg)
+    svc = app.state.service
+    worker: RunnerWorker = app.state.worker
+    svc.create_repo_admin(name="slow", git_url=str(repo_dir))
+    await worker.start()
+    try:
+        r = svc.trigger_run(ADMIN_PRINCIPAL, TriggerRunRequest(repo="slow", ref="main"))
+        for _ in range(80):
+            st = svc.get_run_status(ADMIN_PRINCIPAL, r.id)
+            if st.status in ("passed", "failed"):
+                break
+            await asyncio.sleep(0.05)
+        logs = svc.get_run_logs(ADMIN_PRINCIPAL, r.id)
+        assert st.status == "passed"
+        assert "FIRST_LINE" in logs.raw_log
+        assert "SPLIT_ACROSS_PAUSE" in logs.raw_log
+    finally:
+        await worker.stop()
