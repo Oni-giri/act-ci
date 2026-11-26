@@ -426,8 +426,8 @@ def main() -> None:
     )
     assert tb_check.returncode != 0, "Unexpected Python traceback in settled logs!"
 
-    # Update Path: bump version to 0.1.1, run apps.update.mutate, repeat checks 3 and 5
-    print("==> Update Path: Bumping manifest version 0.1.0 -> 0.1.1 and running apps.update.mutate...")
+    # Update Path: bump version to 99.0.0, run apps.update.mutate, repeat checks 3 and 5
+    print("==> Update Path: Bumping manifest version -> 99.0.0 and running apps.update.mutate...")
     for sd in store_dirs:
         run_cmd(
             [
@@ -435,8 +435,9 @@ def main() -> None:
                 "exec",
                 CONTAINER,
                 "sed",
+                "-E",
                 "-i",
-                's/version: "0.1.0"/version: "0.1.1"/',
+                's/^version: ".*"/version: "99.0.0"/',
                 f"{sd}/{APP_ID}/umbrel-app.yml",
             ]
         )

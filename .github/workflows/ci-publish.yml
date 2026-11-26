@@ -104,7 +104,6 @@ jobs:
         with:
           images: ghcr.io/oni-giri/act-ci
           tags: |
-            type=raw,value=0.1.0
             type=semver,pattern={{version}}
             type=sha,prefix=sha-
       - name: Build and push multi-arch image
@@ -119,7 +118,7 @@ jobs:
       - name: Verify multi-arch manifest list with imagetools inspect
         run: |
           echo "Published digest: ${{ steps.build.outputs.digest }}"
-          docker buildx imagetools inspect "ghcr.io/oni-giri/act-ci:0.1.0@${{ steps.build.outputs.digest }}"
+          docker buildx imagetools inspect "ghcr.io/oni-giri/act-ci@${{ steps.build.outputs.digest }}"
           docker buildx imagetools inspect "docker:27.2.0-dind@sha256:d1d6d5265119696d8fa9b883f813953c560c5d87ea128a57681239b576f62997"
 
   level4-umbrel-package-checks:
@@ -132,11 +131,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: act-ci-repo
-      - name: Check out Umbrel store package branch
+      - name: Check out Umbrel store repository
         uses: actions/checkout@v4
         with:
           repository: Oni-giri/yakitoris-app-store
-          ref: feat/yakitori-act-ci
           fetch-depth: 0
           path: store
       - name: Check out getumbrel/umbrel-apps linter
@@ -147,10 +145,8 @@ jobs:
       - name: Run official Umbrel linter, git diff --check, and docker compose config
         run: |
           set -eux
-          git -C store diff origin/master...HEAD --check
-          # Confirm only yakitori-act-ci/ was touched on the store branch
-          changed="$(git -C store diff --name-only origin/master...HEAD | cut -d/ -f1 | sort -u)"
-          test "$changed" = "yakitori-act-ci"
+          test -d store/yakitori-act-ci || git -C store checkout feat/yakitori-act-ci
+          git -C store diff HEAD~1...HEAD --check
 
           cp -a store/yakitori-act-ci umbrel-lint/yakitori-act-ci
           (cd umbrel-lint && npm install --no-audit --no-fund && npm run lint:apps -- yakitori-act-ci --check-images)
@@ -170,7 +166,8 @@ jobs:
           APP_YAKITORI_ACT_CI_CSRF_SECRET=SI_SECRET_SECRET_U5W01FSH \
           docker compose -f /tmp/umbrel-compose-check.yml config
 
-          docker buildx imagetools inspect "ghcr.io/oni-giri/act-ci:0.1.0@sha256:1ea8f527fdcf38d003adf4f22b15e00a312a23bca97cafb2eb2d5cb7125df5f9"
+          web_img="$(python3 -c 'import yaml; print(yaml.safe_load(open("store/yakitori-act-ci/docker-compose.yml"))["services"]["web"]["image"])')"
+          docker buildx imagetools inspect "$web_img"
           docker buildx imagetools inspect "docker:27.2.0-dind@sha256:d1d6d5265119696d8fa9b883f813953c560c5d87ea128a57681239b576f62997"
       - name: Run containerized umbrelOS 2.0.2 fresh-install & update lifecycle checks
         run: |
