@@ -25,6 +25,7 @@ class Settings:
     prune_interval_seconds: int
     prune_until: str
     enable_worker: bool
+    allow_loopback_callbacks: bool = False
 
     @property
     def db_path(self) -> Path:
@@ -56,7 +57,14 @@ def load_settings() -> Settings:
     docker_binary = os.environ.get("ACT_CI_DOCKER_BINARY", "docker")
     master_key_env = os.environ.get("ACT_CI_MASTER_KEY") or None
     csrf_secret_env = os.environ.get("ACT_CI_CSRF_SECRET") or None
-    allow_local_repos = os.environ.get("ACT_CI_ALLOW_LOCAL_REPOS", "1").lower() in (
+    allow_local_repos = os.environ.get("ACT_CI_ALLOW_LOCAL_REPOS", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    allow_loopback_callbacks = os.environ.get(
+        "ACT_CI_ALLOW_LOOPBACK_CALLBACKS", "0"
+    ).lower() in (
         "1",
         "true",
         "yes",
@@ -84,4 +92,5 @@ def load_settings() -> Settings:
         prune_interval_seconds=prune_interval_seconds,
         prune_until=prune_until,
         enable_worker=enable_worker,
+        allow_loopback_callbacks=allow_loopback_callbacks,
     )

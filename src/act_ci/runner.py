@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import os
@@ -11,16 +12,22 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from act_ci.config import Settings
 from act_ci.db import Database, utc_now_iso
-from act_ci.service import validate_relative_workspace_path
+from act_ci.service import (
+    is_disallowed_callback_ip,
+    validate_callback_url,
+    validate_relative_workspace_path,
+)
 from act_ci.security import SecretBox, SecretMasker
 
 logger = logging.getLogger("act_ci.runner")
@@ -715,14 +722,36 @@ class RunnerWorker:
 
         replacement_wf = payload.get("replacement_workflow")
         if replacement_wf:
-            # Write replacement workflow into run_tmp_dir or .github/workflows override
-            wf_dir = workspace_dir / ".github" / "workflows"
-            if wf_dir.is_symlink():
+            # Write replacement workflow into .github/workflows override and mark git-ignored
+            dot_github = workspace_dir / ".github"
+            wf_dir = dot_github / "workflows"
+            if dot_github.is_symlink() or wf_dir.is_symlink():
                 raise RuntimeError("Refusing to write workflow into symlinked .github/workflows")
             wf_dir.mkdir(parents=True, exist_ok=True)
             override_rel = ".github/workflows/__act_ci_replacement__.yml"
             override_path = workspace_dir / override_rel
+            if override_path.is_symlink():
+                override_path.unlink()
             override_path.write_text(str(replacement_wf), encoding="utf-8")
+
+            git_exclude = workspace_dir / ".git" / "info" / "exclude"
+            if git_exclude.parent.is_dir() and not git_exclude.is_symlink():
+                existing_excl = (
+                    git_exclude.read_text(encoding="utf-8")
+                    if git_exclude.exists()
+                    else ""
+                )
+                marker_line = f"/{override_rel}"
+                if marker_line not in existing_excl.splitlines():
+                    prefix = (
+                        ""
+                        if (not existing_excl or existing_excl.endswith("\n"))
+                        else "\n"
+                    )
+                    git_exclude.write_text(
+                        f"{existing_excl}{prefix}{marker_line}\n",
+                        encoding="utf-8",
+                    )
             return override_rel
 
         if run_row.get("workflow_path"):
@@ -823,40 +852,124 @@ class RunnerWorker:
 
         async def _stream_stdout() -> None:
             assert proc.stdout is not None
-            while True:
-                raw_line = await proc.stdout.readline()
-                if not raw_line:
-                    break
-                decoded = raw_line.decode("utf-8", errors="replace")
-                parsed = parse_act_json_line(decoded)
-                if parsed is not None:
-                    mapped = map_act_json_event(parsed)
-                    if mapped["append_text"] or mapped["status"]:
-                        self.db.upsert_step_log(
-                            run_id,
-                            job_id=mapped["job_id"],
-                            job_name=masker.mask(mapped["job_name"]),
-                            step_id=mapped["step_id"],
-                            step_name=masker.mask(mapped["step_name"]),
-                            stage=mapped["stage"],
-                            status=mapped["status"],
-                            exit_code=mapped["exit_code"],
-                            append_text=masker.mask(mapped["append_text"]),
-                            timestamp=mapped["timestamp"],
+            loop = asyncio.get_running_loop()
+            pending_key: tuple[str, str, str] | None = None
+            pending_meta: dict[str, Any] = {}
+            pending_chunks: list[str] = []
+            last_flush = loop.time()
+
+            def _flush_pending() -> None:
+                nonlocal pending_key, pending_meta, pending_chunks, last_flush
+                if pending_key is None or not pending_chunks:
+                    pending_key = None
+                    pending_chunks = []
+                    return
+                self.db.upsert_step_log(
+                    run_id,
+                    job_id=pending_meta["job_id"],
+                    job_name=pending_meta["job_name"],
+                    step_id=pending_meta["step_id"],
+                    step_name=pending_meta["step_name"],
+                    stage=pending_meta["stage"],
+                    status=None,
+                    exit_code=None,
+                    append_text="".join(pending_chunks),
+                    timestamp=pending_meta.get("timestamp"),
+                )
+                pending_key = None
+                pending_chunks = []
+                last_flush = loop.time()
+
+            try:
+                while True:
+                    try:
+                        raw_line = await asyncio.wait_for(
+                            proc.stdout.readline(), timeout=0.1
                         )
-                else:
-                    clean_line = masker.mask(decoded)
-                    if clean_line.strip():
-                        self.db.upsert_step_log(
-                            run_id,
-                            job_id="__act__",
-                            job_name="Runner",
-                            step_id="output",
-                            step_name="act output",
-                            stage="Main",
-                            status=None,
-                            append_text=clean_line if clean_line.endswith("\n") else f"{clean_line}\n",
-                        )
+                    except asyncio.TimeoutError:
+                        _flush_pending()
+                        continue
+                    if not raw_line:
+                        break
+                    decoded = raw_line.decode("utf-8", errors="replace")
+                    parsed = parse_act_json_line(decoded)
+                    if parsed is not None:
+                        mapped = map_act_json_event(parsed)
+                        if mapped["append_text"] or mapped["status"]:
+                            job_name_m = masker.mask(mapped["job_name"])
+                            step_name_m = masker.mask(mapped["step_name"])
+                            text_m = masker.mask(mapped["append_text"])
+                            key = (mapped["job_id"], mapped["step_id"], mapped["stage"])
+                            if mapped["status"] is not None:
+                                if pending_key == key and pending_chunks:
+                                    text_m = "".join(pending_chunks) + text_m
+                                    pending_key = None
+                                    pending_chunks = []
+                                else:
+                                    _flush_pending()
+                                self.db.upsert_step_log(
+                                    run_id,
+                                    job_id=mapped["job_id"],
+                                    job_name=job_name_m,
+                                    step_id=mapped["step_id"],
+                                    step_name=step_name_m,
+                                    stage=mapped["stage"],
+                                    status=mapped["status"],
+                                    exit_code=mapped["exit_code"],
+                                    append_text=text_m,
+                                    timestamp=mapped["timestamp"],
+                                )
+                                last_flush = loop.time()
+                            elif text_m:
+                                if pending_key is not None and pending_key != key:
+                                    _flush_pending()
+                                if pending_key is None:
+                                    pending_key = key
+                                    pending_meta = {
+                                        "job_id": mapped["job_id"],
+                                        "job_name": job_name_m,
+                                        "step_id": mapped["step_id"],
+                                        "step_name": step_name_m,
+                                        "stage": mapped["stage"],
+                                        "timestamp": mapped["timestamp"],
+                                    }
+                                else:
+                                    pending_meta["job_name"] = job_name_m
+                                    pending_meta["step_name"] = step_name_m
+                                pending_chunks.append(text_m)
+                                if (
+                                    len(pending_chunks) >= 64
+                                    or (loop.time() - last_flush) >= 0.1
+                                ):
+                                    _flush_pending()
+                    else:
+                        clean_line = masker.mask(decoded)
+                        if clean_line.strip():
+                            key = ("__act__", "output", "Main")
+                            if pending_key is not None and pending_key != key:
+                                _flush_pending()
+                            if pending_key is None:
+                                pending_key = key
+                                pending_meta = {
+                                    "job_id": "__act__",
+                                    "job_name": "Runner",
+                                    "step_id": "output",
+                                    "step_name": "act output",
+                                    "stage": "Main",
+                                    "timestamp": None,
+                                }
+                            pending_chunks.append(
+                                clean_line
+                                if clean_line.endswith("\n")
+                                else f"{clean_line}\n"
+                            )
+                            if (
+                                len(pending_chunks) >= 64
+                                or (loop.time() - last_flush) >= 0.1
+                            ):
+                                _flush_pending()
+            finally:
+                _flush_pending()
 
         reader_task = asyncio.create_task(_stream_stdout())
         timed_out = False
@@ -985,7 +1098,24 @@ class RunnerWorker:
         if not callback_url:
             return
         payload = {"run_id": run_id, "status": status}
+        allow_loopback = self.settings.allow_loopback_callbacks
         try:
+            validate_callback_url(callback_url, allow_loopback=allow_loopback)
+            parsed = urlparse(callback_url)
+            hostname = parsed.hostname or ""
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            addr_infos = await asyncio.get_running_loop().getaddrinfo(
+                hostname, port, type=socket.SOCK_STREAM
+            )
+            if not addr_infos:
+                raise ValueError(f"Could not resolve callback host '{hostname}'")
+            for info in addr_infos:
+                raw_ip = info[4][0]
+                ip_obj = ipaddress.ip_address(raw_ip.split("%", 1)[0])
+                if is_disallowed_callback_ip(ip_obj, allow_loopback=allow_loopback):
+                    raise ValueError(
+                        f"Refusing callback to disallowed address {ip_obj}"
+                    )
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
                 resp = await client.post(callback_url, json=payload)
                 self.db.set_callback_status(run_id, f"http_{resp.status_code}")

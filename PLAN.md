@@ -17,7 +17,7 @@
   - **Secrets & Clone Credentials at Rest:** Encrypted using `cryptography.fernet.Fernet` (AES-128-CBC + HMAC-SHA256). Key derived via HKDF-SHA256 from `ACT_CI_MASTER_KEY` environment variable (supplied by Umbrel `exports.sh` via `derive_entropy "${app_entropy_identifier}-encryption-key"`); when running standalone outside Umbrel without `ACT_CI_MASTER_KEY`, auto-generates and persists `${ACT_CI_DATA_DIR}/master.key` (`0600`) on first boot.
 - **Pinned Upstream Binaries / Sidecars:**
   - `nektos/act`: **v0.2.98** (verified SHA256 checksums per architecture: `d3344bd0810c04b000d2444030b08c90ab9fbf905bbe2c3e26298be00c620d65` for `Linux_x86_64`, `a30ba1a1582cb93810c77f743415cac33c16f60fc288116a8e0943144b6a6a4f` for `Linux_arm64`).
-  - Docker CLI inside web container (pinned static Docker CLI matching daemon API) + **Docker-in-Docker sidecar** `docker:27.2.0-dind@sha256:f9f72ad901a78f27be922b2d320bbc263174f12919c1b37e6a01f828fa904565` (multi-arch, modeled on `getumbrel/umbrel-apps` `onedev`).
+  - Docker CLI inside web container (pinned static Docker CLI matching daemon API) + **Docker-in-Docker sidecar** `docker:27.2.0-dind@sha256:d1d6d5265119696d8fa9b883f813953c560c5d87ea128a57681239b576f62997` (multi-arch, modeled on `getumbrel/umbrel-apps` `onedev`).
 
 ## 3. Access Model, Route Layout & Proxy Boundary
 

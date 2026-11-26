@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import secrets
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Iterable
@@ -97,24 +98,75 @@ def hash_api_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
+CSRF_COOKIE_NAME = "act_ci_csrf_sid"
+CSRF_DEFAULT_TTL_SECONDS = 12 * 3600
+
+
 class CsrfSigner:
-    """Stateless per-install HMAC CSRF token signer."""
+    """Session-bound, TTL-enforced HMAC CSRF token signer."""
 
-    def __init__(self, secret: bytes) -> None:
+    def __init__(
+        self, secret: bytes, ttl_seconds: int = CSRF_DEFAULT_TTL_SECONDS
+    ) -> None:
         self._secret = secret
+        self.ttl_seconds = ttl_seconds
 
-    def issue(self) -> str:
+    @staticmethod
+    def generate_session_id() -> str:
+        return secrets.token_hex(16)
+
+    @staticmethod
+    def is_valid_session_id(session_id: str | None) -> bool:
+        if not session_id or len(session_id) != 32:
+            return False
+        try:
+            int(session_id, 16)
+            return True
+        except ValueError:
+            return False
+
+    def issue(self, session_id: str = "", *, now: int | None = None) -> str:
         nonce = secrets.token_hex(16)
-        sig = hmac.new(self._secret, nonce.encode("ascii"), hashlib.sha256).hexdigest()
-        return f"{nonce}.{sig}"
+        ts = int(time.time()) if now is None else int(now)
+        ts_hex = f"{ts:x}"
+        payload = f"{session_id}:{nonce}:{ts_hex}"
+        sig = hmac.new(
+            self._secret, payload.encode("ascii"), hashlib.sha256
+        ).hexdigest()
+        return f"{nonce}.{ts_hex}.{sig}"
 
-    def verify(self, token: str | None) -> bool:
-        if not token or "." not in token:
+    def verify(
+        self,
+        token: str | None,
+        session_id: str = "",
+        *,
+        now: int | None = None,
+    ) -> bool:
+        if not token:
             return False
-        nonce, sig = token.split(".", 1)
-        if len(nonce) != 32 or len(sig) != 64:
+        parts = token.split(".")
+        if len(parts) != 3:
             return False
-        expected = hmac.new(self._secret, nonce.encode("ascii"), hashlib.sha256).hexdigest()
+        nonce, ts_hex, sig = parts
+        if len(nonce) != 32 or len(sig) != 64 or not (1 <= len(ts_hex) <= 16):
+            return False
+        try:
+            issued_at = int(ts_hex, 16)
+            int(nonce, 16)
+        except ValueError:
+            return False
+
+        current_ts = int(time.time()) if now is None else int(now)
+        # Allow small clock skew (60s) and enforce expiration TTL
+        if issued_at > current_ts + 60:
+            return False
+        if current_ts - issued_at > self.ttl_seconds:
+            return False
+
+        payload = f"{session_id}:{nonce}:{ts_hex}"
+        expected = hmac.new(
+            self._secret, payload.encode("ascii"), hashlib.sha256
+        ).hexdigest()
         return hmac.compare_digest(sig, expected)
 
 

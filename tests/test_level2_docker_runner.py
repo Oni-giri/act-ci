@@ -81,6 +81,7 @@ def real_docker_env(tmp_path: Path) -> tuple[Settings, str]:
         prune_interval_seconds=0,
         prune_until="168h",
         enable_worker=True,
+        allow_loopback_callbacks=True,
     )
     return settings, docker_host
 

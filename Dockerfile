@@ -7,7 +7,9 @@ ARG TARGETARCH
 ENV ACT_VERSION=0.2.98 \
     ACT_SHA256_AMD64=d3344bd0810c04b000d2444030b08c90ab9fbf905bbe2c3e26298be00c620d65 \
     ACT_SHA256_ARM64=a30ba1a1582cb93810c77f743415cac33c16f60fc288116a8e0943144b6a6a4f \
-    DOCKER_CLI_VERSION=27.5.1
+    DOCKER_CLI_VERSION=27.5.1 \
+    DOCKER_CLI_SHA256_AMD64=4f798b3ee1e0140eab5bf30b0edc4e84f4cdb53255a429dc3bbae9524845d640 \
+    DOCKER_CLI_SHA256_ARM64=e6b53725a73763ab3f988c73f8772eaed429754c1a579db5ff11f21990fd1817
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -23,11 +25,13 @@ RUN set -eux; \
         ACT_ARCH="Linux_x86_64"; \
         ACT_SHA="${ACT_SHA256_AMD64}"; \
         DOCKER_ARCH="x86_64"; \
+        DOCKER_SHA="${DOCKER_CLI_SHA256_AMD64}"; \
         ;; \
       arm64) \
         ACT_ARCH="Linux_arm64"; \
         ACT_SHA="${ACT_SHA256_ARM64}"; \
         DOCKER_ARCH="aarch64"; \
+        DOCKER_SHA="${DOCKER_CLI_SHA256_ARM64}"; \
         ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
@@ -37,6 +41,7 @@ RUN set -eux; \
     chmod +x /usr/local/bin/act; \
     rm -f /tmp/act.tar.gz; \
     curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_CLI_VERSION}.tgz" -o /tmp/docker.tgz; \
+    echo "${DOCKER_SHA}  /tmp/docker.tgz" | sha256sum -c -; \
     tar -xzf /tmp/docker.tgz --strip-components=1 -C /usr/local/bin docker/docker; \
     chmod +x /usr/local/bin/docker; \
     rm -f /tmp/docker.tgz; \

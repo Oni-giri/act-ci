@@ -6,13 +6,28 @@ services:
     stop_grace_period: 30s
     environment:
       DOCKER_TLS_CERTDIR: ""
-    command:
-      - dockerd
-      - --host=unix:///var/run/docker.sock
-      - --host=tcp://0.0.0.0:2375
-      - --storage-driver=overlay2
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        rm -f /var/run/docker.pid
+        mkdir -p /var/run/dind
+        chmod 0755 /var/run/dind
+        dockerd-entrypoint.sh dockerd \
+          --host=unix:///var/run/dind/docker.sock \
+          --storage-driver=overlay2 &
+        dind_pid=$$!
+        for _ in $$(seq 1 60); do
+          if [ -S /var/run/dind/docker.sock ]; then
+            chmod 0666 /var/run/dind/docker.sock
+            break
+          fi
+          sleep 0.5
+        done
+        wait "$$dind_pid"
     volumes:
       - dind-storage:/var/lib/docker
+      - dind-run:/var/run/dind
 
   web:
     build: .
@@ -22,16 +37,18 @@ services:
     depends_on:
       - docker
     ports:
-      - "${ACT_CI_LISTEN_PORT:-8755}:8080"
+      - "${ACT_CI_LISTEN_HOST:-127.0.0.1}:${ACT_CI_LISTEN_PORT:-8755}:8080"
     environment:
       ACT_CI_DATA_DIR: /data
       ACT_CI_HOST: 0.0.0.0
       ACT_CI_PORT: "8080"
-      ACT_CI_DOCKER_HOST: tcp://docker:2375
-      ACT_CI_ALLOW_LOCAL_REPOS: "1"
+      ACT_CI_DOCKER_HOST: unix:///var/run/dind/docker.sock
+      ACT_CI_ALLOW_LOCAL_REPOS: "${ACT_CI_ALLOW_LOCAL_REPOS:-0}"
     volumes:
       - app-data:/data
+      - dind-run:/var/run/dind
 
 volumes:
   app-data:
   dind-storage:
+  dind-run:

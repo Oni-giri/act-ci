@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -18,7 +19,7 @@ from act_ci.models import (
     Principal,
     TriggerRunRequest,
 )
-from act_ci.security import CsrfSigner
+from act_ci.security import CSRF_COOKIE_NAME, CsrfSigner
 from act_ci.service import CiService
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -59,21 +60,121 @@ ADMIN_PRINCIPAL = Principal(
 )
 
 
+def _effective_request_host(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-host")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip().lower()
+    host = request.headers.get("host")
+    if host:
+        return host.strip().lower()
+    return request.url.netloc.lower()
+
+
+def _verify_same_origin_headers(request: Request) -> None:
+    """Enforce Origin / Referer host match on state-changing requests when present."""
+    expected_host = _effective_request_host(request)
+    if not expected_host:
+        return
+
+    origin = request.headers.get("origin")
+    if origin:
+        if origin.strip().lower() == "null":
+            raise ForbiddenError("Cross-origin request rejected (null Origin)")
+        parsed = urlparse(origin.strip())
+        if not parsed.netloc or parsed.netloc.lower() != expected_host:
+            raise ForbiddenError("Cross-origin request rejected (Origin mismatch)")
+        return
+
+    referer = request.headers.get("referer")
+    if referer:
+        parsed = urlparse(referer.strip())
+        if not parsed.netloc or parsed.netloc.lower() != expected_host:
+            raise ForbiddenError("Cross-origin request rejected (Referer mismatch)")
+
+
 def _require_csrf(request: Request, csrf_token: str | None) -> None:
+    _verify_same_origin_headers(request)
     signer: CsrfSigner = request.app.state.csrf
-    if not signer.verify(csrf_token):
+    session_id = request.cookies.get(CSRF_COOKIE_NAME) or ""
+    if not CsrfSigner.is_valid_session_id(session_id):
+        raise ForbiddenError("Invalid or missing CSRF session cookie")
+    if not signer.verify(csrf_token, session_id=session_id):
         raise ForbiddenError("Invalid or missing CSRF token")
 
 
-def _base_ctx(request: Request, active_nav: str, **extra: Any) -> dict[str, Any]:
+def _render_template(
+    request: Request,
+    template_name: str,
+    active_nav: str,
+    *,
+    status_code: int = 200,
+    **extra: Any,
+) -> HTMLResponse:
     signer: CsrfSigner = request.app.state.csrf
+    existing_sid = request.cookies.get(CSRF_COOKIE_NAME)
+    if CsrfSigner.is_valid_session_id(existing_sid):
+        session_id = existing_sid  # type: ignore[assignment]
+        needs_cookie = False
+    else:
+        session_id = signer.generate_session_id()
+        needs_cookie = True
+
     ctx: dict[str, Any] = {
         "request": request,
         "active_nav": active_nav,
-        "csrf_token": signer.issue(),
+        "csrf_token": signer.issue(session_id=session_id),
     }
     ctx.update(extra)
-    return ctx
+    resp = templates.TemplateResponse(request, template_name, ctx, status_code=status_code)
+    if needs_cookie:
+        is_https = (
+            request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
+            == "https"
+        )
+        resp.set_cookie(
+            key=CSRF_COOKIE_NAME,
+            value=session_id,
+            max_age=signer.ttl_seconds,
+            httponly=True,
+            samesite="lax",
+            secure=is_https,
+            path="/",
+        )
+    return resp
+
+
+def _unquote_dotenv_value(raw_val: str) -> str:
+    val = raw_val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+        quote = val[0]
+        inner = val[1:-1]
+        if quote == "'":
+            return inner
+        # Unescape standard double-quoted dotenv sequences
+        out_chars: list[str] = []
+        i = 0
+        while i < len(inner):
+            ch = inner[i]
+            if ch == "\\" and i + 1 < len(inner):
+                nxt = inner[i + 1]
+                if nxt == "n":
+                    out_chars.append("\n")
+                elif nxt == "r":
+                    out_chars.append("\r")
+                elif nxt == "t":
+                    out_chars.append("\t")
+                elif nxt in ('"', "\\", "$"):
+                    out_chars.append(nxt)
+                else:
+                    out_chars.append(ch)
+                    out_chars.append(nxt)
+                i += 2
+            else:
+                out_chars.append(ch)
+                i += 1
+        return "".join(out_chars)
+    return val
 
 
 def _parse_dotenv_secrets(raw_text: str) -> dict[str, str]:
@@ -83,6 +184,8 @@ def _parse_dotenv_secrets(raw_text: str) -> dict[str, str]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
+        if stripped.startswith("export "):
+            line = stripped[len("export ") :]
         if "=" not in line:
             raise ApiError(
                 422,
@@ -90,7 +193,7 @@ def _parse_dotenv_secrets(raw_text: str) -> dict[str, str]:
                 "invalid_request",
             )
         key, val = line.split("=", 1)
-        out[key.strip()] = val.strip()
+        out[key.strip()] = _unquote_dotenv_value(val)
     return out
 
 
@@ -126,19 +229,16 @@ async def ui_runs_list(
     runs = svc.list_runs(
         ADMIN_PRINCIPAL, repo=clean_repo, status=clean_status, limit=100
     )
-    return templates.TemplateResponse(
+    return _render_template(
         request,
         "runs.html",
-        _base_ctx(
-            request,
-            "runs",
-            runs=runs,
-            repos=repos,
-            selected_repo=clean_repo or "",
-            selected_status=clean_status or "",
-            statuses=VALID_RUN_STATUSES,
-            flash=flash,
-        ),
+        "runs",
+        runs=runs,
+        repos=repos,
+        selected_repo=clean_repo or "",
+        selected_status=clean_status or "",
+        statuses=VALID_RUN_STATUSES,
+        flash=flash,
     )
 
 
@@ -173,16 +273,13 @@ async def ui_run_detail(run_id: str, request: Request) -> HTMLResponse:
     run = svc.get_run_status(ADMIN_PRINCIPAL, run_id)
     logs = svc.get_run_logs(ADMIN_PRINCIPAL, run_id)
     overlay_info = svc.get_run_private_overlay_admin_or_operator(ADMIN_PRINCIPAL, run_id)
-    return templates.TemplateResponse(
+    return _render_template(
         request,
         "run_detail.html",
-        _base_ctx(
-            request,
-            "runs",
-            run=run,
-            logs=logs,
-            overlay_info=overlay_info,
-        ),
+        "runs",
+        run=run,
+        logs=logs,
+        overlay_info=overlay_info,
     )
 
 
@@ -246,19 +343,16 @@ async def ui_repos_page(
         if edit is not None and r["id"] == edit:
             edit_repo = item
 
-    return templates.TemplateResponse(
+    return _render_template(
         request,
         "repos.html",
-        _base_ctx(
-            request,
-            "repos",
-            repos=repo_items,
-            edit_repo=edit_repo,
-            default_image=DEFAULT_RUNNER_IMAGE,
-            default_timeout=DEFAULT_TIMEOUT_SECONDS,
-            flash=flash,
-            error=error,
-        ),
+        "repos",
+        repos=repo_items,
+        edit_repo=edit_repo,
+        default_image=DEFAULT_RUNNER_IMAGE,
+        default_timeout=DEFAULT_TIMEOUT_SECONDS,
+        flash=flash,
+        error=error,
     )
 
 
@@ -363,18 +457,15 @@ async def ui_tokens_page(
     _require_admin_ui(request)
     svc: CiService = request.app.state.service
     tokens = svc.list_tokens()
-    return templates.TemplateResponse(
+    return _render_template(
         request,
         "tokens.html",
-        _base_ctx(
-            request,
-            "tokens",
-            tokens=tokens,
-            created_token=None,
-            created_token_meta=None,
-            flash=flash,
-            error=error,
-        ),
+        "tokens",
+        tokens=tokens,
+        created_token=None,
+        created_token_meta=None,
+        flash=flash,
+        error=error,
     )
 
 
@@ -399,19 +490,16 @@ async def ui_create_token(
 
     # Render directly in response to POST (never put raw token in URL query string or DB!)
     tokens = svc.list_tokens()
-    return templates.TemplateResponse(
+    return _render_template(
         request,
         "tokens.html",
-        _base_ctx(
-            request,
-            "tokens",
-            tokens=tokens,
-            created_token=raw_token,
-            created_token_meta=meta,
-            flash=None,
-            error=None,
-        ),
+        "tokens",
         status_code=201,
+        tokens=tokens,
+        created_token=raw_token,
+        created_token_meta=meta,
+        flash=None,
+        error=None,
     )
 
 
@@ -441,15 +529,12 @@ async def ui_activity_page(
     svc: CiService = request.app.state.service
     entries = svc.db.list_audit_logs(limit=limit, offset=offset)
     total = svc.db.count_audit_logs()
-    return templates.TemplateResponse(
+    return _render_template(
         request,
         "activity.html",
-        _base_ctx(
-            request,
-            "activity",
-            entries=entries,
-            total=total,
-            limit=limit,
-            offset=offset,
-        ),
+        "activity",
+        entries=entries,
+        total=total,
+        limit=limit,
+        offset=offset,
     )

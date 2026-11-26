@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import posixpath
 import re
@@ -72,15 +73,76 @@ def validate_relative_workspace_path(rel_path: str, *, allow_git_dir: bool = Fal
     return norm
 
 
-def validate_callback_url(url: str | None) -> str | None:
+MAX_OVERLAY_FILES = 100
+MAX_OVERLAY_FILE_BYTES = 1024 * 1024  # 1 MiB per file
+MAX_OVERLAY_TOTAL_BYTES = 4 * 1024 * 1024  # 4 MiB total across overlay files
+MAX_REPLACEMENT_WORKFLOW_BYTES = 512 * 1024  # 512 KiB
+
+FORBIDDEN_CALLBACK_HOSTNAMES = frozenset(
+    {
+        "localhost",
+        "localhost.localdomain",
+        "ip6-localhost",
+        "ip6-loopback",
+        "docker",
+        "host.docker.internal",
+        "gateway.docker.internal",
+    }
+)
+
+
+def is_disallowed_callback_ip(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    *,
+    allow_loopback: bool = False,
+) -> bool:
+    """Return True if an IP address must never receive runner webhook callbacks."""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if ip.is_unspecified or ip.is_link_local or ip.is_multicast:
+        return True
+    if ip.is_loopback and not allow_loopback:
+        return True
+    return False
+
+
+def validate_callback_url(
+    url: str | None, *, allow_loopback: bool = False
+) -> str | None:
     if not url:
         return None
     cleaned = url.strip()
     if not cleaned:
         return None
     parsed = urlparse(cleaned)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
         raise ValidationApiError("callback_url must be a valid http:// or https:// URL")
+    if parsed.username or parsed.password:
+        raise ValidationApiError("callback_url must not embed credentials")
+
+    host_lower = parsed.hostname.lower().rstrip(".")
+    if not allow_loopback and (
+        host_lower in FORBIDDEN_CALLBACK_HOSTNAMES or host_lower.endswith(".localhost")
+    ):
+        raise ValidationApiError(
+            f"callback_url target '{parsed.hostname}' is not permitted"
+        )
+    if host_lower in ("docker", "host.docker.internal", "gateway.docker.internal"):
+        raise ValidationApiError(
+            f"callback_url target '{parsed.hostname}' is not permitted"
+        )
+
+    try:
+        ip_obj = ipaddress.ip_address(host_lower)
+    except ValueError:
+        ip_obj = None
+
+    if ip_obj is not None and is_disallowed_callback_ip(
+        ip_obj, allow_loopback=allow_loopback
+    ):
+        raise ValidationApiError(
+            f"callback_url IP address '{parsed.hostname}' is not permitted"
+        )
     return cleaned
 
 
@@ -494,10 +556,23 @@ class CiService:
 
             normalized_overlay: dict[str, str] = {}
             if req.overlay:
-                if len(req.overlay) > 100:
-                    raise ValidationApiError("Overlay cannot exceed 100 files")
+                if len(req.overlay) > MAX_OVERLAY_FILES:
+                    raise ValidationApiError(
+                        f"Overlay cannot exceed {MAX_OVERLAY_FILES} files"
+                    )
+                total_overlay_bytes = 0
                 for raw_path, content in req.overlay.items():
                     norm_path = validate_relative_workspace_path(raw_path)
+                    encoded_len = len(content.encode("utf-8"))
+                    if encoded_len > MAX_OVERLAY_FILE_BYTES:
+                        raise ValidationApiError(
+                            f"Overlay file '{norm_path}' exceeds maximum size of {MAX_OVERLAY_FILE_BYTES} bytes"
+                        )
+                    total_overlay_bytes += encoded_len
+                    if total_overlay_bytes > MAX_OVERLAY_TOTAL_BYTES:
+                        raise ValidationApiError(
+                            f"Total overlay size cannot exceed {MAX_OVERLAY_TOTAL_BYTES} bytes"
+                        )
                     normalized_overlay[norm_path] = content
 
             replacement_wf = (
@@ -505,7 +580,17 @@ class CiService:
                 if req.replacement_workflow and req.replacement_workflow.strip()
                 else None
             )
-            callback_url = validate_callback_url(req.callback_url)
+            if (
+                replacement_wf
+                and len(replacement_wf.encode("utf-8")) > MAX_REPLACEMENT_WORKFLOW_BYTES
+            ):
+                raise ValidationApiError(
+                    f"replacement_workflow cannot exceed {MAX_REPLACEMENT_WORKFLOW_BYTES} bytes"
+                )
+            callback_url = validate_callback_url(
+                req.callback_url,
+                allow_loopback=self.settings.allow_loopback_callbacks,
+            )
         except ValidationApiError as exc:
             self._audit(
                 principal,

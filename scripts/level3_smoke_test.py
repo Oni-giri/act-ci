@@ -12,6 +12,7 @@ Starts Act-CI and the isolated Docker-in-Docker sidecar with plain Docker Compos
 
 from __future__ import annotations
 
+import http.cookiejar
 import json
 import os
 import re
@@ -24,6 +25,8 @@ import urllib.request
 
 BASE_URL = os.environ.get("ACT_CI_SMOKE_URL", "http://127.0.0.1:8755")
 COMPOSE_PROJECT = os.environ.get("ACT_CI_SMOKE_PROJECT", "actci-smoke")
+_COOKIE_JAR = http.cookiejar.CookieJar()
+_UI_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_COOKIE_JAR))
 
 
 def _http(
@@ -32,6 +35,7 @@ def _http(
     *,
     data: bytes | None = None,
     headers: dict[str, str] | None = None,
+    use_cookies: bool = True,
 ) -> tuple[int, str, dict[str, str]]:
     req = urllib.request.Request(
         f"{BASE_URL}{path}",
@@ -39,8 +43,9 @@ def _http(
         headers=headers or {},
         method=method,
     )
+    opener = _UI_OPENER if use_cookies else urllib.request.build_opener()
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with opener.open(req, timeout=20) as resp:
             body = resp.read().decode("utf-8", errors="replace")
             return resp.status, body, dict(resp.headers)
     except urllib.error.HTTPError as err:
@@ -63,9 +68,11 @@ def _wait_ready(timeout_s: float = 60.0) -> None:
 
 def main() -> None:
     print("==> Starting plain Docker Compose stack (web + isolated DinD sidecar)...")
+    compose_env = {**os.environ, "ACT_CI_ALLOW_LOCAL_REPOS": "1"}
     subprocess.run(
         ["docker", "compose", "-p", COMPOSE_PROJECT, "up", "-d", "--build"],
         check=True,
+        env=compose_env,
     )
     try:
         _wait_ready()
@@ -84,7 +91,7 @@ def main() -> None:
                     "web",
                     "docker",
                     "-H",
-                    "tcp://docker:2375",
+                    "unix:///var/run/dind/docker.sock",
                     "info",
                 ],
                 capture_output=True,
@@ -180,6 +187,7 @@ def main() -> None:
             "/api/v1/runs",
             data=json.dumps({"repo": "smoke-repo", "ref": "main"}).encode("utf-8"),
             headers=auth_hdr,
+            use_cookies=False,
         )
         assert code == 201, f"Trigger failed: {code} {trig_body}"
         run_id = json.loads(trig_body)["id"]
@@ -215,6 +223,7 @@ def main() -> None:
                 }
             ).encode("utf-8"),
             headers=auth_hdr,
+            use_cookies=False,
         )
         assert code == 200
         mcp_status = json.loads(mcp_status_body)["result"]["structuredContent"]
@@ -232,6 +241,7 @@ def main() -> None:
                 }
             ).encode("utf-8"),
             headers=auth_hdr,
+            use_cookies=False,
         )
         assert code == 200
         mcp_logs = json.loads(mcp_log_body)["result"]["structuredContent"]
@@ -250,7 +260,7 @@ def main() -> None:
                 "web",
                 "docker",
                 "-H",
-                "tcp://docker:2375",
+                "unix:///var/run/dind/docker.sock",
                 "ps",
                 "-a",
                 "-q",

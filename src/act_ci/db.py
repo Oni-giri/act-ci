@@ -21,6 +21,8 @@ VALID_RUN_STATUSES = (
     "timed_out",
 )
 TERMINAL_RUN_STATUSES = ("passed", "failed", "cancelled", "timed_out")
+MAX_STEP_LOG_CHARS = 2 * 1024 * 1024  # 2 MiB per step log cap
+STEP_LOG_TRUNCATION_MARKER = "\n...[step log truncated at 2 MiB limit]...\n"
 
 
 def utc_now_iso() -> str:
@@ -659,12 +661,13 @@ class Database:
         exit_code: int | None = None,
         append_text: str = "",
         timestamp: str | None = None,
+        max_log_chars: int = MAX_STEP_LOG_CHARS,
     ) -> None:
         ts = timestamp or utc_now_iso()
         with self.connection(write=True) as conn:
             existing = conn.execute(
                 """
-                SELECT id, status, exit_code, started_at, finished_at, log_text
+                SELECT id, status, exit_code, started_at, finished_at, LENGTH(log_text) AS log_len
                 FROM run_steps
                 WHERE run_id = ? AND job_id = ? AND step_id = ?
                 """,
@@ -678,6 +681,9 @@ class Database:
                 next_seq = int(seq_row["next_seq"])
                 new_status = status or "running"
                 finished = ts if new_status in ("passed", "failed", "skipped", "cancelled") else None
+                initial_log = append_text
+                if len(initial_log) > max_log_chars:
+                    initial_log = initial_log[:max_log_chars] + STEP_LOG_TRUNCATION_MARKER
                 conn.execute(
                     """
                     INSERT INTO run_steps (
@@ -697,37 +703,68 @@ class Database:
                         exit_code,
                         ts,
                         finished,
-                        append_text,
+                        initial_log,
                     ),
                 )
             else:
-                new_log = existing["log_text"] + append_text if append_text else existing["log_text"]
+                cur_len = int(existing["log_len"] or 0)
+                chunk_to_append = ""
+                if append_text and cur_len < max_log_chars:
+                    remaining = max_log_chars - cur_len
+                    if len(append_text) <= remaining:
+                        chunk_to_append = append_text
+                    else:
+                        chunk_to_append = (
+                            append_text[:remaining] + STEP_LOG_TRUNCATION_MARKER
+                        )
+
                 new_status = status or existing["status"]
                 new_exit = exit_code if exit_code is not None else existing["exit_code"]
                 finished = existing["finished_at"]
                 if new_status in ("passed", "failed", "skipped", "cancelled") and not finished:
                     finished = ts
-                conn.execute(
-                    """
-                    UPDATE run_steps
-                    SET job_name = ?,
-                        step_name = ?,
-                        status = ?,
-                        exit_code = ?,
-                        finished_at = ?,
-                        log_text = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        job_name or job_id,
-                        step_name or step_id,
-                        new_status,
-                        new_exit,
-                        finished,
-                        new_log,
-                        existing["id"],
-                    ),
-                )
+                if chunk_to_append:
+                    conn.execute(
+                        """
+                        UPDATE run_steps
+                        SET job_name = ?,
+                            step_name = ?,
+                            status = ?,
+                            exit_code = ?,
+                            finished_at = ?,
+                            log_text = log_text || ?
+                        WHERE id = ?
+                        """,
+                        (
+                            job_name or job_id,
+                            step_name or step_id,
+                            new_status,
+                            new_exit,
+                            finished,
+                            chunk_to_append,
+                            existing["id"],
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE run_steps
+                        SET job_name = ?,
+                            step_name = ?,
+                            status = ?,
+                            exit_code = ?,
+                            finished_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            job_name or job_id,
+                            step_name or step_id,
+                            new_status,
+                            new_exit,
+                            finished,
+                            existing["id"],
+                        ),
+                    )
 
     def list_run_steps(self, run_id: str) -> list[dict[str, Any]]:
         with self.connection(write=False) as conn:
