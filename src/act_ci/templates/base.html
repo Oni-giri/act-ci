@@ -6,6 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Act-CI{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="/ui-assets/act-ci-mark.svg">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("om-theme");
+        if (t === "dark" || t === "light" || t === "auto") {
+          document.documentElement.setAttribute("data-theme", t);
+        }
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="/ui-assets/omakase/css/omakase.css">
   <style>
     .om-log-pre {
@@ -149,6 +159,10 @@
             <span class="om-count om-count-alert">{{ nav_denied_count }}<span class="om-sr"> blocked requests</span></span>
           {% endif %}
         </a>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 8px 0;margin-top:4px;border-top:1px solid var(--glass-line)">
+          <span id="om-theme-label" style="font-size:13px;color:var(--ink-2)">Dark mode</span>
+          <button type="button" role="switch" aria-checked="false" aria-labelledby="om-theme-label" class="om-switch" data-om-theme-toggle></button>
+        </div>
       </div>
     </nav>
 
@@ -164,6 +178,10 @@
     <a class="om-nav {% if active_nav == 'repos' %}om-nav-on{% endif %}" href="/repos">Repos</a>
     <a class="om-nav {% if active_nav == 'tokens' %}om-nav-on{% endif %}" href="/tokens">Tokens</a>
     <a class="om-nav {% if active_nav == 'activity' %}om-nav-on{% endif %}" href="/activity">Activity</a>
+    <span style="display:inline-flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:var(--ink-2)">
+      <span>Dark</span>
+      <button type="button" role="switch" aria-checked="false" aria-label="Dark mode" class="om-switch" data-om-theme-toggle></button>
+    </span>
   </nav>
 
   <div id="om-cmd-overlay" class="om-overlay om-overlay-top" style="display:none" onclick="window.__omClosePalette && window.__omClosePalette()">
@@ -179,6 +197,8 @@
         <a class="om-palette-it" href="/repos" data-cmd-item><span style="flex:1">Manage repositories</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">/repos</span></a>
         <a class="om-palette-it" href="/tokens" data-cmd-item><span style="flex:1">Manage API tokens</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">/tokens</span></a>
         <a class="om-palette-it" href="/activity" data-cmd-item><span style="flex:1">Inspect activity audit log</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">/activity</span></a>
+        <div class="om-palette-g">Appearance</div>
+        <button type="button" class="om-palette-it" data-cmd-item onclick="window.__omToggleTheme(); window.__omClosePalette()"><span style="flex:1">Switch between light and dark theme</span><span class="om-mono" style="font-size:12px;color:var(--ink-subtle)" id="om-cmd-theme-state">auto</span></button>
         {% if sidebar_repos %}
         <div class="om-palette-g">Repositories</div>
         {% for sr in sidebar_repos %}
@@ -233,7 +253,11 @@
           if (e.key === "Escape") { window.__omClosePalette(); }
           if (e.key === "Enter") {
             const first = items.find(function (el) { return el.style.display !== "none"; });
-            if (first) { window.location.href = first.getAttribute("href"); }
+            if (first) {
+              const href = first.getAttribute("href");
+              if (href) window.location.href = href;
+              else first.click();
+            }
           }
         });
       }
@@ -260,6 +284,44 @@
         const el = document.getElementById(id);
         if (el) el.style.display = "none";
       };
+
+      // Theme switch (light / dark, defaulting to OS preference until toggled)
+      const themeSwitches = Array.from(document.querySelectorAll("[data-om-theme-toggle]"));
+      const cmdThemeState = document.getElementById("om-cmd-theme-state");
+      const mql = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+      function isDarkEffective() {
+        const attr = document.documentElement.getAttribute("data-theme") || "auto";
+        if (attr === "dark") return true;
+        if (attr === "light") return false;
+        return !!(mql && mql.matches);
+      }
+
+      function syncThemeUi() {
+        const dark = isDarkEffective();
+        themeSwitches.forEach(function (sw) {
+          sw.setAttribute("aria-checked", dark ? "true" : "false");
+          sw.classList.toggle("om-switch-on", dark);
+        });
+        if (cmdThemeState) {
+          cmdThemeState.textContent = dark ? "dark" : "light";
+        }
+      }
+
+      window.__omToggleTheme = function () {
+        const next = isDarkEffective() ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem("om-theme", next); } catch (e) {}
+        syncThemeUi();
+      };
+
+      themeSwitches.forEach(function (sw) {
+        sw.addEventListener("click", window.__omToggleTheme);
+      });
+      if (mql && mql.addEventListener) {
+        mql.addEventListener("change", syncThemeUi);
+      }
+      syncThemeUi();
 
       // InteractiveSwitch: toggle button + hidden checkbox input
       document.querySelectorAll("[data-om-switch]").forEach(function (btn) {

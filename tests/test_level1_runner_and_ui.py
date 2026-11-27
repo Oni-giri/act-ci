@@ -233,6 +233,7 @@ def test_web_ui_pages_filters_forms_and_csrf(client: TestClient) -> None:
     assert r_home.status_code == 200
     assert "Workflow runs" in r_home.text
     assert 'data-theme="auto"' in r_home.text
+    assert "data-om-theme-toggle" in r_home.text
     assert 'class="om-app om-canvas"' in r_home.text
     assert 'class="om-ic"' in r_home.text
     assert "/ui-assets/omakase/icons/" not in r_home.text
