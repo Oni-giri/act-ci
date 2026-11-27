@@ -64,6 +64,30 @@ class TriggerRunRequest(BaseModel):
     callback_url: str | None = Field(default=None, max_length=2048)
 
 
+class RegisterRepoRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    git_url: str = Field(..., min_length=1, max_length=2048)
+    credential_type: Literal["global", "none", "token", "deploy_key"] = Field(
+        default="global",
+        description="Clone credential mode. 'global' (default) uses the account-wide Git credential configured in Act-CI settings.",
+    )
+    credential_value: str | None = Field(
+        default=None,
+        max_length=16384,
+        description="Optional per-repo token or SSH deploy key when credential_type is 'token' or 'deploy_key'.",
+    )
+    default_image: str = Field(
+        default="catthehacker/ubuntu:act-22.04",
+        min_length=1,
+        max_length=512,
+    )
+    timeout_seconds: int = Field(default=1800, ge=1, le=86400)
+    secrets: dict[str, str] | None = Field(
+        default=None,
+        description="Optional workflow secrets (KEY -> VALUE) encrypted at rest and masked in logs.",
+    )
+
+
 class RepoPublicView(BaseModel):
     name: str
     git_url: str

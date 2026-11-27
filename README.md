@@ -85,6 +85,28 @@ curl -sS -H "Authorization: Bearer $ACT_CI_TOKEN" \
   "$ACT_CI_URL/api/v1/repos"
 ```
 
+### Connect your Git account once, then let agents register repos
+
+On the **Repos** page, save a single **Git account connection** (a fine-grained GitHub token
+with read-only *Contents*, or an SSH deploy key). It is encrypted at rest and used by every
+repository whose credential is `global` (the default) — so you never paste a token per repo,
+and agents never need to see it.
+
+An `operator` token can then register a repository over the API or MCP with no secret at all:
+
+```bash
+curl -sS -X POST "$ACT_CI_URL/api/v1/repos" \
+  -H "Authorization: Bearer $ACT_CI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-service", "git_url": "https://github.com/me/my-service.git"}'
+```
+
+Registration is idempotent (same name + URL returns the existing repo) and is audited as
+`repos.register`. It is limited to known forges (`github.com`, `gitlab.com`, `bitbucket.org`,
+`codeberg.org`, `gitea.com`); anything else must be added in the UI. `viewer` tokens are
+rejected. Workflow secrets and API keys are intentionally **not** accepted here — add those on
+the Repos page yourself.
+
 ### Trigger a standard run
 
 ```bash
@@ -142,6 +164,7 @@ curl -sS -X POST -H "Authorization: Bearer $ACT_CI_TOKEN" \
 Act-CI exposes a Streamable HTTP MCP server at `/mcp` using the same bearer tokens. The `tools/list` response automatically filters tools to match the token's role (`viewer` vs `operator`), and all RBAC rules are enforced in the core service layer:
 
 - `list_repos` *(viewer, operator)*
+- `register_repo` *(operator: name + URL only, inherits the Git account connection)*
 - `list_recent_runs` *(viewer, operator)*
 - `get_run_status` *(viewer, operator)*
 - `get_run_log` *(viewer: non-private runs only; operator: all runs)*

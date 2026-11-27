@@ -450,9 +450,36 @@ async def ui_repos_page(
         edit_repo=edit_repo,
         default_image=DEFAULT_RUNNER_IMAGE,
         default_timeout=DEFAULT_TIMEOUT_SECONDS,
+        global_credential=svc.get_global_git_credential_status(),
         flash=flash,
         error=error,
     )
+
+
+@ui_router.post("/repos/git-credential")
+async def ui_set_global_git_credential(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    git_credential_type: str = Form(default="token"),
+    git_credential_value: str = Form(default=""),
+) -> Response:
+    _require_admin_ui(request)
+    _require_csrf(request, csrf_token)
+    svc: CiService = request.app.state.service
+    from urllib.parse import quote_plus
+
+    try:
+        svc.set_global_git_credential_admin(
+            credential_type=git_credential_type,
+            credential_value=git_credential_value,
+        )
+        return RedirectResponse(
+            url="/repos?flash=Global+Git+connection+saved", status_code=303
+        )
+    except ApiError as exc:
+        return RedirectResponse(
+            url=f"/repos?error={quote_plus(exc.detail)}", status_code=303
+        )
 
 
 @ui_router.post("/repos")
@@ -461,7 +488,7 @@ async def ui_create_repo(
     csrf_token: str = Form(default=""),
     name: str = Form(...),
     git_url: str = Form(...),
-    credential_type: str = Form(default="none"),
+    credential_type: str = Form(default="global"),
     credential_value: str = Form(default=""),
     default_image: str = Form(default=DEFAULT_RUNNER_IMAGE),
     timeout_seconds: int = Form(default=DEFAULT_TIMEOUT_SECONDS),
@@ -497,7 +524,7 @@ async def ui_update_repo(
     csrf_token: str = Form(default=""),
     name: str = Form(...),
     git_url: str = Form(...),
-    credential_type: str = Form(default="none"),
+    credential_type: str = Form(default="global"),
     credential_value: str = Form(default=""),
     default_image: str = Form(default=DEFAULT_RUNNER_IMAGE),
     timeout_seconds: int = Form(default=DEFAULT_TIMEOUT_SECONDS),

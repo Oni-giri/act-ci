@@ -26,6 +26,45 @@
 
   <section class="om-card">
     <div class="om-card-h">
+      <h2 class="om-card-t">Git account connection</h2>
+      {% if global_credential.configured %}
+        <span class="om-st om-st-ok">Connected · {{ global_credential.type|replace('_', ' ') }}</span>
+      {% else %}
+        <span class="om-st om-st-open">Not connected</span>
+      {% endif %}
+    </div>
+    <form method="post" action="/repos/git-credential">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="om-card-b" style="display:flex;flex-direction:column;gap:14px">
+        <p style="margin:0;color:var(--ink-2)">
+          Set one read-only GitHub credential here and every repository can use it, so you never paste a token again per repo.
+          Repositories left on <span class="om-mono">global</span> inherit this connection.
+        </p>
+        <div class="om-form-grid">
+          <div class="om-field-stack">
+            <label for="global-cred-type" class="om-label">Credential type</label>
+            <select id="global-cred-type" name="git_credential_type" class="om-fld">
+              <option value="token" {% if global_credential.type != 'deploy_key' %}selected{% endif %}>HTTPS access token</option>
+              <option value="deploy_key" {% if global_credential.type == 'deploy_key' %}selected{% endif %}>SSH deploy key</option>
+              <option value="none" {% if not global_credential.configured %}hidden{% endif %}>Disconnect</option>
+            </select>
+            <span class="om-hint">A fine-grained token with read-only Contents on every repo you run.</span>
+          </div>
+          <div class="om-field-stack" style="grid-column:span 2">
+            <label for="global-cred-value" class="om-label">Token or private key</label>
+            <textarea id="global-cred-value" name="git_credential_value" rows="2" class="om-fld om-mono" placeholder="{% if global_credential.configured %}Leave blank to keep the saved credential{% else %}github_pat_... or -----BEGIN OPENSSH PRIVATE KEY-----{% endif %}"></textarea>
+            <span class="om-hint">Encrypted at rest, never shown again, masked in run logs.</span>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end">
+          <button type="submit" class="om-btn om-btn-g">Save Git connection</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <section class="om-card">
+    <div class="om-card-h">
       <h2 class="om-card-t">{% if edit_repo %}Edit repository · {{ edit_repo.name }}{% else %}Add repository{% endif %}</h2>
       {% if edit_repo %}
         <span class="om-mark om-l-feat">editing</span>
@@ -50,7 +89,16 @@
         <div class="om-field-stack">
           <span class="om-label">Read-only clone credential</span>
           <div class="om-form-grid">
-            {% set cur_cred = edit_repo.credential_type if edit_repo else 'none' %}
+            {% set cur_cred = edit_repo.credential_type if edit_repo else 'global' %}
+            <label class="om-radio-card">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="radio" name="credential_type" value="global" {% if cur_cred == 'global' %}checked{% endif %}>
+                <span style="font-weight:500;color:var(--ink)">Use the Git account connection</span>
+              </div>
+              <span class="om-hint">
+                {% if global_credential.configured %}Reuses the connection above; paste nothing.{% else %}No global credential saved yet; this repo will fail to clone a private repository until you connect one above.{% endif %}
+              </span>
+            </label>
             <label class="om-radio-card">
               <div style="display:flex;align-items:center;gap:8px">
                 <input type="radio" name="credential_type" value="none" {% if cur_cred == 'none' %}checked{% endif %}>
@@ -61,14 +109,14 @@
             <label class="om-radio-card">
               <div style="display:flex;align-items:center;gap:8px">
                 <input type="radio" name="credential_type" value="token" {% if cur_cred == 'token' %}checked{% endif %}>
-                <span style="font-weight:500;color:var(--ink)">HTTPS access token</span>
+                <span style="font-weight:500;color:var(--ink)">Per-repo HTTPS token</span>
               </div>
-              <span class="om-hint">Fine-grained GitHub token with read-only contents permission.</span>
+              <span class="om-hint">Override the connection for this repository only.</span>
             </label>
             <label class="om-radio-card">
               <div style="display:flex;align-items:center;gap:8px">
                 <input type="radio" name="credential_type" value="deploy_key" {% if cur_cred == 'deploy_key' %}checked{% endif %}>
-                <span style="font-weight:500;color:var(--ink)">SSH deploy key</span>
+                <span style="font-weight:500;color:var(--ink)">Per-repo SSH deploy key</span>
               </div>
               <span class="om-hint">Read-only private key passed to git outside the workspace.</span>
             </label>
@@ -82,7 +130,7 @@
               <span class="om-mark om-l-sec" style="margin-left:8px">encrypted on disk</span>
             {% endif %}
           </label>
-          <textarea id="cred-val" name="credential_value" rows="2" class="om-fld om-mono" placeholder="{% if edit_repo and edit_repo.has_credential %}Leave blank to keep existing encrypted credential{% else %}Paste token or OpenSSH private key when needed{% endif %}"></textarea>
+          <textarea id="cred-val" name="credential_value" rows="2" class="om-fld om-mono" placeholder="{% if edit_repo and edit_repo.has_credential %}Leave blank to keep existing encrypted credential{% else %}Only for per-repo token or deploy key; leave blank to use the Git account connection{% endif %}"></textarea>
         </div>
 
         <div class="om-form-grid">
@@ -158,6 +206,8 @@
             <td>
               {% if r.credential_type == 'none' %}
                 <span class="om-mark om-m-all">public</span>
+              {% elif r.credential_type == 'global' %}
+                <span class="om-mark {% if global_credential.configured %}om-l-feat{% else %}om-m-block{% endif %}">account connection</span>
               {% else %}
                 <span class="om-mark om-l-sec">{{ r.credential_type|replace('_', ' ') }}</span>
               {% endif %}
@@ -182,9 +232,9 @@
                 <a href="/repos?edit={{ r.id }}" class="om-btn om-btn-g om-btn-sm">Edit</a>
                 <form method="post" action="/repos/{{ r.id }}/delete" style="margin:0">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <button type="submit" class="om-btn om-btn-d om-btn-sm om-hold" data-om-hold-form title="Click or hold to remove repository">
+                  <button type="submit" class="om-btn om-btn-d om-btn-sm om-hold" data-om-hold-form>
                     <span class="om-hold-fill" style="width:0%"></span>
-                    <span>Remove</span>
+                    <span>Hold to remove</span>
                   </button>
                 </form>
               </div>

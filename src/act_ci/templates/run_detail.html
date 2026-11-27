@@ -43,7 +43,7 @@
       <span id="run-status-glyph">{{ status_glyph(run.status) }}</span>
       {% if run.private %}<span class="om-mark om-m-sealed">Private</span>{% endif %}
       {% if run.has_overlay %}<span class="om-mark om-l-feat">overlay</span>{% endif %}
-      {% if run.has_replacement_workflow %}<span class="om-mark om-m-adv">Replacement workflow</span>{% endif %}
+      {% if run.has_replacement_workflow %}<span class="om-mark om-m-adv om-mk-hollow">Replacement workflow</span>{% endif %}
       <span id="run-header-ratio" class="om-tline">
         <span class="om-ratio" style="width:90px" aria-hidden="true">
           {% if ns.total > 0 and ns.passed > 0 %}<span class="om-r-pass" style="width:{{ (ns.passed * 100) // ns.total }}%"></span>{% endif %}
@@ -107,7 +107,7 @@
       {% if overlay_info.replacement_workflow %}
         <details class="om-step-detail">
           <summary class="om-step-summary">
-            <span class="om-mark om-m-adv">Workflow YAML</span>
+            <span class="om-mark om-m-adv om-mk-hollow">Workflow YAML</span>
             <span style="font-weight:500;color:var(--ink)">Inspect replacement workflow</span>
           </summary>
           <pre class="om-log-pre">{{ overlay_info.replacement_workflow }}</pre>

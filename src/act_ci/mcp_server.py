@@ -12,6 +12,7 @@ from act_ci import __version__
 from act_ci.models import (
     ApiError,
     Principal,
+    RegisterRepoRequest,
     TriggerRunRequest,
 )
 from act_ci.service import CiService
@@ -34,6 +35,57 @@ MCP_TOOLS_SPEC: tuple[dict[str, Any], ...] = (
             "inputSchema": {
                 "type": "object",
                 "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "name": "register_repo",
+        "min_roles": ("operator",),
+        "definition": {
+            "name": "register_repo",
+            "description": (
+                "Register a Git repository so its workflows can be run with trigger_run. "
+                "By default the repository inherits the account-wide Git credential "
+                "(configure it once in Act-CI settings), so no token is needed here. "
+                "Never pass API keys or workflow secrets through this tool: ask the operator "
+                "to add them in the Act-CI UI. Idempotent: re-registering the same name and "
+                "git_url returns the existing repository."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Short slug used by trigger_run (e.g. my-service).",
+                    },
+                    "git_url": {
+                        "type": "string",
+                        "description": "Clone URL, e.g. https://github.com/owner/repo.git or git@github.com:owner/repo.git.",
+                    },
+                    "credential_type": {
+                        "type": "string",
+                        "enum": ["global", "none", "token", "deploy_key"],
+                        "default": "global",
+                        "description": "Use 'global' to reuse the account-wide Git credential.",
+                    },
+                    "credential_value": {
+                        "type": "string",
+                        "description": "Only for credential_type token/deploy_key. Prefer 'global'.",
+                    },
+                    "default_image": {
+                        "type": "string",
+                        "default": "catthehacker/ubuntu:act-22.04",
+                        "description": "Container image mapped to ubuntu-* runner labels.",
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 86400,
+                        "default": 1800,
+                    },
+                },
+                "required": ["name", "git_url"],
                 "additionalProperties": False,
             },
         },
@@ -209,6 +261,15 @@ def _dispatch_tool_call(
     if tool_name == "list_repos":
         repos = svc.list_repos(principal)
         return [r.model_dump() for r in repos]
+
+    if tool_name == "register_repo":
+        try:
+            req = RegisterRepoRequest(**arguments)
+        except Exception as exc:
+            svc.record_protocol_call(principal, "repos.register", "invalid_request:schema")
+            raise ApiError(422, f"Invalid register_repo arguments: {exc}", "invalid_request") from exc
+        repo = svc.register_repo(principal, req)
+        return repo.model_dump()
 
     if tool_name == "list_recent_runs":
         runs = svc.list_runs(

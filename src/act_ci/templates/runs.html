@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_glyph, step_ratio_bar %}
+{% from "_macros.html" import status_glyph, step_ratio_bar, icon_search, icon_filter %}
 {% block title %}Workflow runs · Act-CI{% endblock %}
 
 {% block content %}
@@ -7,7 +7,7 @@
     <h1 class="om-page-t">Workflow runs</h1>
     <div style="flex:1"></div>
     <button type="button" class="om-btn om-btn-g" style="min-width:240px;justify-content:flex-start;color:var(--ink-subtle);font-weight:400" onclick="window.__omOpenPalette()">
-      <img src="/ui-assets/omakase/icons/search.svg" width="15" height="15" alt="">Search or jump to page…<kbd class="om-kbd" style="margin-left:auto">⌘K</kbd>
+      {{ icon_search(15) }}Search or jump to page…<kbd class="om-kbd" style="margin-left:auto">⌘K</kbd>
     </button>
     {% if repos %}
       <button type="button" class="om-btn om-btn-p" onclick="window.__omOpenModal('om-trigger-modal')">Run workflow</button>
@@ -106,7 +106,7 @@
       </select>
 
       <button type="submit" class="om-btn om-btn-g om-btn-sm">
-        <img src="/ui-assets/omakase/icons/filter.svg" width="14" height="14" alt="">Apply filter
+        {{ icon_filter(14) }}Apply filter
       </button>
 
       {% if selected_repo %}

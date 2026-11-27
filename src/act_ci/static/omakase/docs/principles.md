@@ -8,7 +8,7 @@
 2. **Drawn glyphs, not pills.** Status is a 14px circle that fills as work moves forward, followed by plain text (`om-st`). Kinds and labels are a 16×5 colour bar plus text (`om-mark`). Counts and proportions are ratio bars (`om-ratio`). If you are about to draw a rounded box with text in it, use one of these instead.
 3. **Ratio bars scale.** A 6px bar shows proportions (passed vs failed, public vs sealed, done vs left) and works the same for 3 or 300 items. The numbers follow in plain text.
 4. **One accent.** Ultramarine `accent` (#3B5BFD) for the primary action, focus, selection and progress. Everything else is ink on white. Green `success` is reserved for Accept, rose for failure and urgent.
-5. **Colour lives in small marks.** Status glyphs, label bars, project squares, role glyphs. Text stays ink. No tinted row backgrounds per status, no coloured cards.
+5. **Colour lives in small marks, and never alone.** Status glyphs, label bars, project squares, role glyphs. Text stays ink. No tinted row backgrounds per status, no coloured cards. Every colour that carries meaning comes with a shape or a word: glyphs differ in fill, label bars in shape, ratio bars carry their numbers in text.
 6. **Centered, never sideways.** Pop-ups open centered over a scrim. No side sheets or drawers.
 7. **Glass only for chrome.** The sidebar, properties rail and phone dock are 58% white with a 16px blur over the blooms. Cards are never glass.
 8. **Not grey.** Avoid large grey fills: strips, tab bars and footers are white or `surface-sunken` at most; hover is a faint blue wash (`accent-wash`), not grey.
@@ -39,6 +39,11 @@ Inter for everything, JetBrains Mono for machine things (IDs, agent names, branc
 - Radius: 3 for bars, 7 for tabs, 8 for buttons and fields, 10 for panels and toasts, 12 for cards, 16 for modals and phone cards. Text never sits in a fully rounded pill.
 - Depth: `shadow-card` on every card (hairline plus a long soft fall), `shadow-menu` for menus, `shadow-modal` for dialogs, `shadow-toast` for toasts. Active tabs and nav items use a 1px ring (`shadow-ring`) instead of a border.
 
+## Themes and density
+
+- **Light** is the default. **Dark** is graphite: a neutral near-black with no colour cast (`canvas` #0F1012, cards #18191C), surfaces separated by hairlines more than by shade, with the same rules: one ultramarine accent, colour only in small marks, the four blooms reduced to faint glows. Every text token passes 4.5:1 in both themes.
+- **Dense** (default) for tools people use all day: 13.5px text, 52px rows. **Comfortable** (`om-comfy`) for consumer-facing and public pages: 15px text, 60px rows, larger titles and buttons.
+
 ## Layout
 
 - Desktop: a 220px glass sidebar (logo, main pages, projects, saved views, workspace settings at the bottom), a flexible main column, and on detail pages a 300px glass properties rail on the right.
@@ -60,3 +65,4 @@ Single-weight stroke icons on a 16px grid, 1.5px stroke, round joins, drawn in `
 ## Motion
 
 Short and functional: 150ms colour and transform transitions, an 0.8s spinner, a 1.2s fill on hold-to-confirm buttons. Respect reduced motion (slower spinners, no movement).
+

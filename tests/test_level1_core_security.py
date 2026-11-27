@@ -152,6 +152,23 @@ API_PERMISSION_MATRIX: list[dict[str, Any]] = [
         },
     },
     {
+        "id": "POST /api/v1/repos",
+        "method": "POST",
+        "route_template": "/api/v1/repos",
+        "path": lambda w: "/api/v1/repos",
+        "json": lambda w: {
+            "name": "api-registered-repo",
+            "git_url": "https://github.com/example/api-registered.git",
+            "credential_type": "global",
+        },
+        "expected": {
+            "operator": 201,
+            "viewer": 403,
+            "no_token": 401,
+            "revoked_token": 401,
+        },
+    },
+    {
         "id": "POST /api/v1/runs",
         "method": "POST",
         "route_template": "/api/v1/runs",
@@ -253,6 +270,21 @@ MCP_PERMISSION_MATRIX: list[dict[str, Any]] = [
         "expected": {
             "operator": "ok",
             "viewer": "ok",
+            "no_token": 401,
+            "revoked_token": 401,
+        },
+    },
+    {
+        "id": "mcp:register_repo",
+        "tool": "register_repo",
+        "args": lambda w: {
+            "name": "mcp-registered-repo",
+            "git_url": "https://github.com/example/mcp-registered.git",
+            "credential_type": "global",
+        },
+        "expected": {
+            "operator": "ok",
+            "viewer": "denied",
             "no_token": 401,
             "revoked_token": 401,
         },
@@ -490,6 +522,7 @@ def test_mcp_tool_list_filtered_by_role_and_get_probe_audited(
     op_tools = [t["name"] for t in op_resp.json()["result"]["tools"]]
     assert set(op_tools) == {
         "list_repos",
+        "register_repo",
         "list_recent_runs",
         "get_run_status",
         "get_run_log",

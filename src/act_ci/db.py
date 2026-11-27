@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 VALID_ROLES = ("operator", "viewer")
-VALID_CREDENTIAL_TYPES = ("none", "token", "deploy_key")
+VALID_CREDENTIAL_TYPES = ("global", "none", "token", "deploy_key")
+VALID_GLOBAL_CREDENTIAL_TYPES = ("none", "token", "deploy_key")
 VALID_RUN_STATUSES = (
     "queued",
     "running",
@@ -39,14 +40,22 @@ CREATE TABLE IF NOT EXISTS repos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     git_url TEXT NOT NULL,
-    credential_type TEXT NOT NULL DEFAULT 'none'
-        CHECK (credential_type IN ('none', 'token', 'deploy_key')),
+    credential_type TEXT NOT NULL DEFAULT 'global'
+        CHECK (credential_type IN ('global', 'none', 'token', 'deploy_key')),
     encrypted_credential TEXT NOT NULL DEFAULT '',
     default_image TEXT NOT NULL,
     timeout_seconds INTEGER NOT NULL DEFAULT 1800 CHECK (timeout_seconds >= 1),
     encrypted_secrets TEXT NOT NULL DEFAULT '',
     secret_keys_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS global_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    git_credential_type TEXT NOT NULL DEFAULT 'none'
+        CHECK (git_credential_type IN ('none', 'token', 'deploy_key')),
+    encrypted_git_credential TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
 );
 
@@ -188,16 +197,141 @@ class Database:
             conn = self._connect()
             try:
                 conn.executescript(SCHEMA_SQL)
-                cur = conn.execute(
+                now = utc_now_iso()
+                cur1 = conn.execute(
                     "SELECT 1 FROM schema_migrations WHERE version = 1"
                 ).fetchone()
-                if not cur:
+                if not cur1:
                     conn.execute(
                         "INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)",
-                        (utc_now_iso(),),
+                        (now,),
+                    )
+
+                # Migration 2: widen repos.credential_type CHECK to include 'global' on v1 databases
+                # and seed singleton global_settings row.
+                cur2 = conn.execute(
+                    "SELECT 1 FROM schema_migrations WHERE version = 2"
+                ).fetchone()
+                if not cur2:
+                    table_sql_row = conn.execute(
+                        "SELECT sql FROM sqlite_master WHERE type='table' AND name='repos'"
+                    ).fetchone()
+                    if table_sql_row and "'global'" not in (table_sql_row["sql"] or ""):
+                        conn.execute("PRAGMA foreign_keys=OFF;")
+                        conn.execute("BEGIN IMMEDIATE;")
+                        try:
+                            conn.execute(
+                                """
+                                CREATE TABLE repos_v2 (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    name TEXT NOT NULL UNIQUE,
+                                    git_url TEXT NOT NULL,
+                                    credential_type TEXT NOT NULL DEFAULT 'global'
+                                        CHECK (credential_type IN ('global', 'none', 'token', 'deploy_key')),
+                                    encrypted_credential TEXT NOT NULL DEFAULT '',
+                                    default_image TEXT NOT NULL,
+                                    timeout_seconds INTEGER NOT NULL DEFAULT 1800 CHECK (timeout_seconds >= 1),
+                                    encrypted_secrets TEXT NOT NULL DEFAULT '',
+                                    secret_keys_json TEXT NOT NULL DEFAULT '[]',
+                                    created_at TEXT NOT NULL,
+                                    updated_at TEXT NOT NULL
+                                );
+                                """
+                            )
+                            conn.execute(
+                                """
+                                INSERT INTO repos_v2 (
+                                    id, name, git_url, credential_type, encrypted_credential,
+                                    default_image, timeout_seconds, encrypted_secrets, secret_keys_json,
+                                    created_at, updated_at
+                                )
+                                SELECT
+                                    id, name, git_url, credential_type, encrypted_credential,
+                                    default_image, timeout_seconds, encrypted_secrets, secret_keys_json,
+                                    created_at, updated_at
+                                FROM repos;
+                                """
+                            )
+                            conn.execute("DROP TABLE repos;")
+                            conn.execute("ALTER TABLE repos_v2 RENAME TO repos;")
+                            seq_row = conn.execute("SELECT COALESCE(MAX(id), 0) AS m FROM repos").fetchone()
+                            if seq_row and int(seq_row["m"]) > 0:
+                                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'repos';")
+                                conn.execute(
+                                    "INSERT INTO sqlite_sequence (name, seq) VALUES ('repos', ?);",
+                                    (int(seq_row["m"]),),
+                                )
+                            conn.execute("COMMIT;")
+                        except Exception:
+                            conn.execute("ROLLBACK;")
+                            raise
+                        finally:
+                            conn.execute("PRAGMA foreign_keys=ON;")
+
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO global_settings (
+                            id, git_credential_type, encrypted_git_credential, updated_at
+                        ) VALUES (1, 'none', '', ?)
+                        """,
+                        (now,),
+                    )
+                    conn.execute(
+                        "INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)",
+                        (now,),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO global_settings (
+                            id, git_credential_type, encrypted_git_credential, updated_at
+                        ) VALUES (1, 'none', '', ?)
+                        """,
+                        (now,),
                     )
             finally:
                 conn.close()
+
+    # ---- Global Git Credential ----
+
+    def get_global_git_credential(self) -> dict[str, Any]:
+        with self.connection(write=False) as conn:
+            row = conn.execute(
+                "SELECT git_credential_type, encrypted_git_credential, updated_at FROM global_settings WHERE id = 1"
+            ).fetchone()
+            if not row:
+                return {
+                    "git_credential_type": "none",
+                    "encrypted_git_credential": "",
+                    "updated_at": utc_now_iso(),
+                }
+            return dict(row)
+
+    def set_global_git_credential(
+        self,
+        *,
+        git_credential_type: str,
+        encrypted_git_credential: str,
+    ) -> dict[str, Any]:
+        if git_credential_type not in VALID_GLOBAL_CREDENTIAL_TYPES:
+            raise ValueError(f"Invalid global git_credential_type: {git_credential_type}")
+        now = utc_now_iso()
+        with self.connection(write=True) as conn:
+            conn.execute(
+                """
+                INSERT INTO global_settings (id, git_credential_type, encrypted_git_credential, updated_at)
+                VALUES (1, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    git_credential_type = excluded.git_credential_type,
+                    encrypted_git_credential = excluded.encrypted_git_credential,
+                    updated_at = excluded.updated_at
+                """,
+                (git_credential_type, encrypted_git_credential, now),
+            )
+            row = conn.execute(
+                "SELECT git_credential_type, encrypted_git_credential, updated_at FROM global_settings WHERE id = 1"
+            ).fetchone()
+            return dict(row)
 
     # ---- Tokens ----
 

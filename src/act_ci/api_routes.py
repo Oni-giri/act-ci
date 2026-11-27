@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 
 from act_ci.models import (
+    RegisterRepoRequest,
     RepoPublicView,
     RunLogsResponse,
     RunPublicView,
@@ -28,6 +29,21 @@ async def api_list_repos(request: Request) -> list[RepoPublicView]:
         attempted_action="repos.list",
     )
     return svc.list_repos(principal)
+
+
+@api_router.post("/repos", response_model=RepoPublicView, status_code=201)
+async def api_register_repo(
+    payload: RegisterRepoRequest,
+    request: Request,
+) -> RepoPublicView:
+    svc = _svc(request)
+    principal = svc.authenticate_bearer(
+        request.headers.get("authorization"),
+        source="api",
+        attempted_action="repos.register",
+        repo_name=payload.name,
+    )
+    return svc.register_repo(principal, payload)
 
 
 @api_router.post("/runs", response_model=RunPublicView, status_code=201)

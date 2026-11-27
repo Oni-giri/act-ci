@@ -1,5 +1,6 @@
+{% from "_macros.html" import icon_pipeline, icon_board, icon_access, icon_shield_check, icon_search %}
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -92,10 +93,10 @@
         right: 0;
         bottom: 0;
         z-index: 35;
-        background: var(--glass);
+        background: var(--glass-strong);
         backdrop-filter: blur(var(--blur-glass));
         -webkit-backdrop-filter: blur(var(--blur-glass));
-        border-top: 1px solid var(--line);
+        border-top: 1px solid var(--glass-line);
         padding: 6px 12px;
         justify-content: space-around;
       }
@@ -115,11 +116,11 @@
 
       <div class="om-nav-group">
         <a class="om-nav {% if active_nav == 'runs' %}om-nav-on{% endif %}" href="/runs" {% if active_nav == 'runs' %}aria-current="page"{% endif %}>
-          <img src="/ui-assets/omakase/icons/pipeline.svg" alt="">Runs
+          {{ icon_pipeline() }}Runs
           <span class="om-count">{{ nav_runs_count }}</span>
         </a>
         <a class="om-nav {% if active_nav == 'repos' %}om-nav-on{% endif %}" href="/repos" {% if active_nav == 'repos' %}aria-current="page"{% endif %}>
-          <img src="/ui-assets/omakase/icons/board.svg" alt="">Repositories
+          {{ icon_board() }}Repositories
           <span class="om-count">{{ nav_repos_count }}</span>
         </a>
       </div>
@@ -139,11 +140,11 @@
       <div class="om-nav-group om-nav-group-end">
         <span class="om-overline">Workspace</span>
         <a class="om-nav {% if active_nav == 'tokens' %}om-nav-on{% endif %}" href="/tokens" {% if active_nav == 'tokens' %}aria-current="page"{% endif %}>
-          <img src="/ui-assets/omakase/icons/access.svg" alt="">API tokens
+          {{ icon_access() }}API tokens
           <span class="om-count">{{ nav_tokens_count }}</span>
         </a>
         <a class="om-nav {% if active_nav == 'activity' %}om-nav-on{% endif %}" href="/activity" {% if active_nav == 'activity' %}aria-current="page"{% endif %}>
-          <img src="/ui-assets/omakase/icons/shield-check.svg" alt="">Activity log
+          {{ icon_shield_check() }}Activity log
           {% if nav_denied_count > 0 %}
             <span class="om-count om-count-alert">{{ nav_denied_count }}<span class="om-sr"> blocked requests</span></span>
           {% endif %}
@@ -168,7 +169,7 @@
   <div id="om-cmd-overlay" class="om-overlay om-overlay-top" style="display:none" onclick="window.__omClosePalette && window.__omClosePalette()">
     <div class="om-palette" role="dialog" aria-modal="true" aria-label="Command palette" onclick="event.stopPropagation()">
       <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line-soft)">
-        <img src="/ui-assets/omakase/icons/search.svg" width="15" height="15" alt="">
+        {{ icon_search(15) }}
         <input id="om-cmd-input" class="om-palette-in" placeholder="Go to a page or filter by repository…" aria-label="Command">
         <kbd class="om-kbd">Esc</kbd>
       </div>
@@ -278,6 +279,7 @@
         const fill = btn.querySelector(".om-hold-fill");
         const form = btn.closest("form");
         let timer = null;
+        let completed = false;
         const duration = 900;
         function stop() {
           if (timer !== null) { window.clearInterval(timer); timer = null; }
@@ -285,13 +287,23 @@
         }
         function start() {
           if (timer !== null || !form) return;
+          completed = false;
           const t0 = Date.now();
           timer = window.setInterval(function () {
             const pct = Math.min(100, ((Date.now() - t0) / duration) * 100);
             if (fill) fill.style.width = pct + "%";
-            if (pct >= 100) { stop(); form.submit(); }
+            if (pct >= 100) {
+              completed = true;
+              stop();
+              if (form.requestSubmit) form.requestSubmit();
+              else form.submit();
+            }
           }, 25);
         }
+        btn.addEventListener("click", function (e) {
+          if (!completed) e.preventDefault();
+          completed = false;
+        });
         btn.addEventListener("pointerdown", start);
         btn.addEventListener("pointerup", stop);
         btn.addEventListener("pointerleave", stop);

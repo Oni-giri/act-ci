@@ -282,6 +282,16 @@ class RunnerWorker:
             return
 
         credential = self.secret_box.decrypt_str(repo_row.get("encrypted_credential") or "")
+        credential_type = str(repo_row.get("credential_type") or "none")
+        if credential_type == "global":
+            # Use the account-wide Git credential configured once in Repos settings.
+            global_row = self.db.get_global_git_credential()
+            global_type = str(global_row.get("git_credential_type") or "none")
+            global_value = self.secret_box.decrypt_str(
+                global_row.get("encrypted_git_credential") or ""
+            )
+            credential = global_value
+            credential_type = global_type if (global_value and global_type != "none") else "none"
         secrets_dict = self.secret_box.decrypt_dict(repo_row.get("encrypted_secrets") or "")
         masker = SecretMasker([credential, *secrets_dict.values()])
 
@@ -318,7 +328,7 @@ class RunnerWorker:
                 run_id=run_id,
                 git_url=repo_row["git_url"],
                 requested_ref=run_row["requested_ref"],
-                credential_type=repo_row["credential_type"],
+                credential_type=credential_type,
                 credential=credential,
                 workspace_dir=workspace_dir,
                 run_tmp_dir=run_tmp_dir,

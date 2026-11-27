@@ -232,13 +232,17 @@ def test_web_ui_pages_filters_forms_and_csrf(client: TestClient) -> None:
     r_home = client.get("/")
     assert r_home.status_code == 200
     assert "Workflow runs" in r_home.text
+    assert 'data-theme="auto"' in r_home.text
     assert 'class="om-app om-canvas"' in r_home.text
+    assert 'class="om-ic"' in r_home.text
+    assert "/ui-assets/omakase/icons/" not in r_home.text
     assert "/ui-assets/omakase/css/omakase.css" in r_home.text
 
     # Verify Omakase stylesheet and icons are served and protected from bearer tokens
     css_resp = client.get("/ui-assets/omakase/css/omakase.css")
     assert css_resp.status_code == 200
     assert "--canvas:" in css_resp.text
+    assert '[data-theme="dark"]' in css_resp.text
     assert client.get("/ui-assets/../ui_routes.py").status_code == 404
 
     # 2. Repos page: create and edit repo, verify CSRF enforcement

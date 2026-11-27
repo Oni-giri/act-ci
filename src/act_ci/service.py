@@ -18,6 +18,7 @@ from act_ci.models import (
     JobLogGroupView,
     NotFoundError,
     Principal,
+    RegisterRepoRequest,
     RepoPublicView,
     RunLogsResponse,
     RunPublicView,
@@ -358,7 +359,7 @@ class CiService:
         *,
         name: str,
         git_url: str,
-        credential_type: str = "none",
+        credential_type: str = "global",
         credential_value: str = "",
         default_image: str = DEFAULT_RUNNER_IMAGE,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
@@ -379,10 +380,13 @@ class CiService:
             raise ValidationApiError("timeout_seconds must be between 1 and 86400")
 
         enc_cred = ""
-        if credential_type != "none" and credential_value.strip():
-            enc_cred = self.secret_box.encrypt_str(credential_value.strip())
-        elif credential_type != "none" and not credential_value.strip():
-            raise ValidationApiError("Credential value is required when credential_type is set")
+        if credential_type in ("token", "deploy_key"):
+            if credential_value.strip():
+                enc_cred = self.secret_box.encrypt_str(credential_value.strip())
+            else:
+                raise ValidationApiError(
+                    "Credential value is required when credential_type is set"
+                )
 
         cleaned_secrets = self._validate_secrets_dict(secrets_dict or {})
         enc_secrets = self.secret_box.encrypt_dict(cleaned_secrets)
@@ -434,7 +438,7 @@ class CiService:
         if timeout_seconds < 1 or timeout_seconds > 86400:
             raise ValidationApiError("timeout_seconds must be between 1 and 86400")
 
-        if credential_type == "none":
+        if credential_type in ("none", "global"):
             enc_cred = ""
         elif credential_value and credential_value.strip():
             enc_cred = self.secret_box.encrypt_str(credential_value.strip())
@@ -497,12 +501,142 @@ class CiService:
             name=row["name"],
             git_url=row["git_url"],
             credential_type=row["credential_type"],
-            has_credential=bool(row["encrypted_credential"]),
+            has_credential=bool(row["encrypted_credential"])
+            or row["credential_type"] == "global",
             default_image=row["default_image"],
             timeout_seconds=row["timeout_seconds"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    # ---- Global Git Credential (one per account, reused by every repo) ----
+
+    def get_global_git_credential_status(self) -> dict[str, Any]:
+        row = self.db.get_global_git_credential()
+        return {
+            "configured": row["git_credential_type"] != "none",
+            "type": row["git_credential_type"],
+            "updated_at": row.get("updated_at"),
+        }
+
+    def set_global_git_credential_admin(
+        self, *, credential_type: str, credential_value: str
+    ) -> dict[str, Any]:
+        if credential_type not in ("none", "token", "deploy_key"):
+            raise ValidationApiError("credential_type must be none, token or deploy_key")
+        value = (credential_value or "").strip()
+        if credential_type == "none":
+            stored = ""
+        elif not value:
+            # Blank value with a type set means "keep the credential I already saved".
+            existing = self.db.get_global_git_credential()
+            if not existing.get("encrypted_git_credential"):
+                raise ValidationApiError(
+                    "Credential value is required the first time you connect a Git account"
+                )
+            stored = existing["encrypted_git_credential"]
+            credential_type = existing["git_credential_type"]
+        else:
+            stored = self.secret_box.encrypt_str(value)
+        self.db.set_global_git_credential(
+            git_credential_type=credential_type,
+            encrypted_git_credential=stored,
+        )
+        return self.get_global_git_credential_status()
+
+    # ---- Operator/Admin: Repository registration over API & MCP ----
+
+    GLOBAL_CREDENTIAL_HOSTS = (
+        "github.com",
+        "gitlab.com",
+        "bitbucket.org",
+        "codeberg.org",
+        "gitea.com",
+    )
+
+    def _validate_repo_git_url_for_agent(self, git_url: str) -> str:
+        """Stricter than the UI path: an agent-registered URL must point at a known forge."""
+        clean = self._validate_git_url(git_url)
+        if self.settings.allow_local_repos and (
+            clean.startswith("/") or clean.startswith("file://")
+        ):
+            return clean
+        host = ""
+        if clean.startswith("git@"):
+            host = clean[4:].split(":", 1)[0].lower()
+        elif clean.startswith("ssh://"):
+            host = (urlparse(clean).hostname or "").lower()
+        else:
+            host = (urlparse(clean).hostname or "").lower()
+        if not host:
+            raise ValidationApiError("git_url must include a host name")
+        allowed = list(self.GLOBAL_CREDENTIAL_HOSTS)
+        if host not in allowed:
+            raise ValidationApiError(
+                f"Agent-registered repositories must be on a known forge "
+                f"({', '.join(allowed)}); register '{host}' in the UI if you trust it."
+            )
+        return clean
+
+    def register_repo(
+        self, principal: Principal, req: "RegisterRepoRequest"
+    ) -> RepoPublicView:
+        repo_name = req.name.strip()
+        self._require_role(
+            principal,
+            ("admin", "operator"),
+            action="repos.register",
+            repo_name=repo_name,
+        )
+        try:
+            git_url = self._validate_repo_git_url_for_agent(req.git_url)
+            credential_type = req.credential_type
+            credential_value = (req.credential_value or "").strip()
+            if credential_type in ("token", "deploy_key") and not credential_value:
+                raise ValidationApiError(
+                    "credential_value is required when credential_type is token or deploy_key"
+                )
+            existing = self.db.get_repo_by_name(repo_name)
+            if existing is None and self.db.list_repos():
+                duplicate = next(
+                    (
+                        r
+                        for r in self.db.list_repos()
+                        if r["git_url"].rstrip("/").lower() == git_url.rstrip("/").lower()
+                    ),
+                    None,
+                )
+                if duplicate is not None:
+                    raise ValidationApiError(
+                        f"Repository URL is already registered as '{duplicate['name']}'"
+                    )
+            if existing is not None:
+                if (
+                    existing["git_url"].rstrip("/").lower()
+                    != git_url.rstrip("/").lower()
+                ):
+                    raise ValidationApiError(
+                        f"Repository '{repo_name}' already exists with a different git_url"
+                    )
+                row = existing
+            else:
+                row = self.create_repo_admin(
+                    name=repo_name,
+                    git_url=git_url,
+                    credential_type=credential_type,
+                    credential_value=credential_value,
+                    default_image=req.default_image,
+                    timeout_seconds=req.timeout_seconds,
+                    secrets_dict=req.secrets or {},
+                )
+        except ValidationApiError as exc:
+            self._audit(
+                principal, "repos.register", f"invalid_request:{exc.detail}", repo_name=repo_name
+            )
+            raise
+
+        self._audit(principal, "repos.register", "ok", repo_name=row["name"])
+        return self._serialize_repo_public(row)
 
     # ---- Shared API / MCP Operations (Role-Enforced + Audited) ----
 

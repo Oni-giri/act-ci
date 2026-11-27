@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import icon_role_implementer, icon_role_reviewer %}
 {% block title %}Activity log · Act-CI{% endblock %}
 
 {% block content %}
@@ -68,9 +69,9 @@
               <td class="om-mono" style="font-size:12.5px;color:var(--ink)">{{ row.token_name }}</td>
               <td>
                 {% if row.role == 'operator' %}
-                  <span class="om-role"><img src="/ui-assets/omakase/icons/role-implementer.svg" alt="">operator</span>
+                  <span class="om-role">{{ icon_role_implementer() }}operator</span>
                 {% elif row.role == 'viewer' %}
-                  <span class="om-role"><img src="/ui-assets/omakase/icons/role-reviewer.svg" alt="">viewer</span>
+                  <span class="om-role">{{ icon_role_reviewer() }}viewer</span>
                 {% else %}
                   <span style="color:var(--ink-subtle)">—</span>
                 {% endif %}

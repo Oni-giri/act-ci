@@ -258,6 +258,7 @@ def main() -> None:
         "app.state.service.create_repo_admin(\n"
         "    name='act-ci-self',\n"
         "    git_url='https://github.com/Oni-giri/act-ci.git',\n"
+        "    credential_type='none',\n"
         "    default_image='node:20-bookworm-slim',\n"
         "    timeout_seconds=180,\n"
         ")\n"

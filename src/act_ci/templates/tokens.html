@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_glyph %}
+{% from "_macros.html" import status_glyph, icon_role_implementer, icon_role_reviewer %}
 {% block title %}API tokens · Act-CI{% endblock %}
 
 {% block content %}
@@ -25,13 +25,13 @@
     <div class="om-card-h">
       <span class="om-st om-st-ok">Token created</span>
       <span class="om-mono" style="font-size:12.5px;color:var(--ink-muted)">{{ created_token_meta.name|lower }}</span>
-      <span class="om-mark {% if created_token_meta.role == 'operator' %}om-l-feat{% else %}om-m-adv{% endif %}">{{ created_token_meta.role }}</span>
+      <span class="om-mark {% if created_token_meta.role == 'operator' %}om-l-feat{% else %}om-m-adv om-mk-hollow{% endif %}">{{ created_token_meta.role }}</span>
     </div>
     <div class="om-card-b" style="display:flex;flex-direction:column;gap:10px">
       <div style="color:var(--ink)">Copy this token now. Act-CI stores only its SHA-256 hash and cannot show the value again.</div>
-      <div class="om-panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <code id="new-token-value" class="om-mono" style="font-size:13px;color:var(--ink);user-select:all;word-break:break-all;flex:1">{{ created_token }}</code>
-        <button type="button" class="om-btn om-btn-g om-btn-sm" id="copy-tok-btn" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('new-token-value').textContent).then(function(){ document.getElementById('copy-tok-btn').textContent='Copied'; })">Copy token</button>
+      <div class="om-code">
+        <code id="new-token-value" class="om-code-t" style="user-select:all">{{ created_token }}</code>
+        <button type="button" class="om-code-b" id="copy-tok-btn" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('new-token-value').textContent).then(function(){ document.getElementById('copy-tok-btn').textContent='Copied'; })">Copy token</button>
       </div>
     </div>
   </section>
@@ -56,14 +56,14 @@
             <label class="om-radio-card">
               <div style="display:flex;align-items:center;gap:8px">
                 <input type="radio" name="role" value="operator" checked>
-                <span class="om-role"><img src="/ui-assets/omakase/icons/role-implementer.svg" alt=""><span style="font-weight:500;color:var(--ink)">Operator</span></span>
+                <span class="om-role">{{ icon_role_implementer() }}<span style="font-weight:500;color:var(--ink)">Operator</span></span>
               </div>
               <span class="om-hint">Trigger and cancel runs, attach overlays, and read logs for all runs including private runs.</span>
             </label>
             <label class="om-radio-card">
               <div style="display:flex;align-items:center;gap:8px">
                 <input type="radio" name="role" value="viewer">
-                <span class="om-role"><img src="/ui-assets/omakase/icons/role-reviewer.svg" alt=""><span style="font-weight:500;color:var(--ink)">Viewer</span></span>
+                <span class="om-role">{{ icon_role_reviewer() }}<span style="font-weight:500;color:var(--ink)">Viewer</span></span>
               </div>
               <span class="om-hint">Read run status on all runs and read logs of standard non-private runs only.</span>
             </label>
@@ -102,9 +102,9 @@
             <td class="om-mono" style="font-weight:500;color:var(--ink)">{{ t.name }}</td>
             <td>
               {% if t.role == 'operator' %}
-                <span class="om-role"><img src="/ui-assets/omakase/icons/role-implementer.svg" alt="">operator</span>
+                <span class="om-role">{{ icon_role_implementer() }}operator</span>
               {% else %}
-                <span class="om-role"><img src="/ui-assets/omakase/icons/role-reviewer.svg" alt="">viewer</span>
+                <span class="om-role">{{ icon_role_reviewer() }}viewer</span>
               {% endif %}
             </td>
             <td class="om-mono" style="font-size:12.5px;color:var(--ink-subtle)">{{ t.token_prefix }}…</td>
@@ -121,7 +121,10 @@
               {% if not t.revoked_at %}
               <form method="post" action="/tokens/{{ t.id }}/revoke" style="margin:0;display:inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="om-btn om-btn-d om-btn-sm">Revoke token</button>
+                <button type="submit" class="om-btn om-btn-d om-btn-sm om-hold" data-om-hold-form>
+                  <span class="om-hold-fill" style="width:0%"></span>
+                  <span>Hold to revoke</span>
+                </button>
               </form>
               {% else %}
                 <span class="om-mono" style="font-size:12px;color:var(--ink-subtle)">{{ t.revoked_at }}</span>
