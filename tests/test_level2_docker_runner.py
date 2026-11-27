@@ -104,6 +104,20 @@ def _assert_slot_clean(settings: Settings, docker_host: str) -> None:
     assert ps_out == "", f"Leftover containers on slot daemon:\n{ps_out}"
 
 
+async def _wait_for_callback(
+    received: list[dict[str, Any]], run_id: str, status: str, timeout_s: float = 20.0
+) -> None:
+    """The callback is fired right after the terminal status is written, so wait for it."""
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    while asyncio.get_running_loop().time() < deadline:
+        if {"run_id": run_id, "status": status} in received:
+            return
+        await asyncio.sleep(0.1)
+    raise AssertionError(
+        f"Callback for {run_id} with status {status} never arrived; got {received}"
+    )
+
+
 async def _wait_for_run(svc, run_id: str, timeout_s: float = 180.0):
     deadline = asyncio.get_running_loop().time() + timeout_s
     while asyncio.get_running_loop().time() < deadline:
@@ -203,6 +217,7 @@ async def test_level2_passing_failing_overlay_replacement_and_callback(
         res1 = await _wait_for_run(svc, r1.id)
         logs1 = svc.get_run_logs(ADMIN_PRINCIPAL, r1.id)
         assert res1.status == "passed", f"r1 failed ({res1.error_message}):\n{logs1.raw_log}"
+        await _wait_for_callback(received_callbacks, r1.id, "passed")
         assert res1.commit_sha == sha_pass
         assert "UNCHANGED_REPO_CONTENT" in logs1.raw_log
         _assert_slot_clean(settings, docker_host)
@@ -222,6 +237,7 @@ async def test_level2_passing_failing_overlay_replacement_and_callback(
         assert res2.status == "failed", f"r2 unexpected status ({res2.status}):\n{logs2.raw_log}"
         assert "ABOUT_TO_FAIL_MARKER" in logs2.raw_log
         _assert_slot_clean(settings, docker_host)
+        await _wait_for_callback(received_callbacks, r2.id, "failed")
         assert received_callbacks[-1] == {"run_id": r2.id, "status": "failed"}
 
         # 3. Overlay files + replacement workflow applied on top of failing commit -> passes!
